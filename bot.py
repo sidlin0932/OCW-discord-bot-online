@@ -150,7 +150,7 @@ class OCWCog(commands.Cog):
              stats_map[BOT_ID] = UserStats(BOT_ID, "Bot")
 
         # 從 DB 讀取 Bonus Points
-        if users_collection:
+        if users_collection is not None:
             async for user_doc in users_collection.find():
                 uid = user_doc["_id"]
                 if uid in stats_map:
@@ -255,7 +255,7 @@ class OCWCog(commands.Cog):
             self.last_range_str = f"Week {target_week} | {s_time.date()} ~ {e_time.date()}"
 
             # 儲存週報到 DB
-            if weekly_reports_collection:
+            if weekly_reports_collection is not None:
                 report_doc = {
                     "year": target_year,
                     "week": target_week,
@@ -303,7 +303,7 @@ class OCWCog(commands.Cog):
             await interaction.response.send_message("❌ 你沒有權限", ephemeral=True)
             return
         
-        if not users_collection:
+        if users_collection is None:
             await interaction.response.send_message("❌ 資料庫未連接", ephemeral=True)
             return
 
@@ -327,7 +327,7 @@ class OCWCog(commands.Cog):
             await interaction.response.send_message("❌ 你沒有權限", ephemeral=True)
             return
         
-        if not users_collection:
+        if users_collection is None:
             await interaction.response.send_message("❌ 資料庫未連接", ephemeral=True)
             return
 
@@ -398,7 +398,7 @@ class OCWCog(commands.Cog):
         year = year or datetime.now(TZ_TW).year
         await interaction.response.defer()
         
-        if not weekly_reports_collection:
+        if weekly_reports_collection is None:
             await interaction.followup.send("❌ 資料庫未連接")
             return
 
@@ -663,7 +663,7 @@ class MyBot(commands.Bot):
                 
                 for week in range(start_week, end_week + 1):
                     # 檢查資料庫是否已有該週數據
-                    if weekly_reports_collection:
+                    if weekly_reports_collection is not None:
                         existing = await weekly_reports_collection.find_one({
                             "year": year,
                             "week": week
@@ -682,7 +682,7 @@ class MyBot(commands.Bot):
                             cog._calculate_scores(stats)
                             
                             # 儲存到資料庫
-                            if weekly_reports_collection:
+                            if weekly_reports_collection is not None:
                                 report_data = {
                                     "year": year,
                                     "week": week,
