@@ -1,53 +1,53 @@
-# Changelog
+# 更新日誌 (Changelog)
 
 ## [1.2.0 Online] - 2025-11-23 23:21:28
-### Added
-- **MongoDB Integration**:
-    - Migrated `bonus_points` and `weekly_reports` to MongoDB Atlas.
-    - Data is now persistent across restarts.
-- **Web Dashboard**:
-    - Added a web interface at the bot's URL.
-    - Displays the latest weekly report and bonus points leaderboard.
-- **History Command**:
-    - Added `/history <week> <year>` to query past weekly reports from the database.
+### 新增功能
+- **資料庫整合 (MongoDB Integration)**:
+    - 將 `bonus_points` (加分) 與 `weekly_reports` (週報) 遷移至 MongoDB Atlas。
+    - 確保資料在 Bot 重啟後不會遺失 (持久化)。
+- **網頁儀表板 (Web Dashboard)**:
+    - 在 Bot 的 Render 網址新增了網頁介面。
+    - 顯示最新的週報與加分排行榜。
+- **歷史查詢指令 (History Command)**:
+    - 新增 `/history <week> <year>` 指令，可從資料庫查詢過去的週報。
 
 ## [1.1.2 Online] - 2025-11-23 22:35:25
-### Changed
-- **Enhanced Auto-Publish**:
-    - `README` & `ROADMAP`: Now use **Embeds** with color highlighting (Green for Latest, Grey for History).
-    - `RELEASE_NOTE`: Now checks for version string existence to avoid duplicates.
-    - `CHANGELOG`: Continues to support smart history backfilling.
-- **Configuration**: Thread IDs are now loaded from `.env` for better security.
+### 變更項目
+- **增強自動發布 (Enhanced Auto-Publish)**:
+    - `README` & `ROADMAP`: 改用 **Embeds** 顯示，並以顏色區分最新版 (綠色) 與歷史版 (灰色)。
+    - `RELEASE_NOTE`: 新增版本號檢查機制，避免重複發布。
+    - `CHANGELOG`: 持續支援智慧歷史補齊功能。
+- **設定優化 (Configuration)**: 將 Thread IDs 改從 `.env` 讀取，提升安全性。
 
 ## [1.1.1 Online] - 2025-11-23 22:19:18
-### Changed
-- **Refactor**: Renamed main bot file to `bot.py` for easier deployment.
-- **Render**: Updated `render.yaml` to use `python bot.py`.
-- **Docs**: Added `ROADMAP.md` and updated `README.md`.
+### 變更項目
+- **重構 (Refactor)**: 將主程式重新命名為 `bot.py` 以利部署。
+- **Render 設定**: 更新 `render.yaml` 以執行 `python bot.py`。
+- **文件**: 新增 `ROADMAP.md` 並更新 `README.md`。
 
 ## [1.1.0 Online] - 2025-11-23 17:49:20
-### Added
-- **Month & Custom Range**: `/compute` now supports `month` (e.g., `month:11`) and custom date ranges (`start_date`, `end_date`).
-- **Date Range Display**: All statistics commands (`leaderboard`, `matrix`, etc.) now explicitly show the calculated date range (e.g., "2025-11-01 ~ 2025-11-30").
-- **Auto-Publish Docs**: Bot now automatically updates `README`, `ROADMAP`, `CHANGELOG`, and `RELEASE_NOTE` in their respective Forum Threads on startup.
+### 新增功能
+- **月報與自訂範圍**: `/compute` 現在支援 `month` (如 `month:11`) 與自訂日期範圍 (`start_date`, `end_date`)。
+- **日期範圍顯示**: 所有統計指令 (`leaderboard`, `matrix` 等) 現在都會明確顯示計算的日期範圍 (例如 "2025-11-01 ~ 2025-11-30")。
+- **自動發布文件**: Bot 啟動時會自動將 `README`, `ROADMAP`, `CHANGELOG`, `RELEASE_NOTE` 更新至對應的論壇貼文。
 
 ## [1.0 Online] - 2025-11-23 15:12:49
-### Added
-- **24/7 Online Support**: Integrated Flask web server (`keep_alive.py`) for cloud hosting.
-- **Security**: Migrated sensitive data (Token, IDs) to environment variables.
-- **Automation**: Added `weekly_report_task` to auto-generate reports every Monday at 00:00 (UTC+8).
-- **Timezone**: Standardized all times to Taiwan Time (UTC+8).
-- **Deployment Config**: Added `render.yaml` and `requirements.txt` for Render deployment.
+### 新增功能
+- **24/7 在線支援**: 整合 Flask 網頁伺服器 (`keep_alive.py`) 以支援雲端託管。
+- **安全性**: 將敏感資料 (Token, IDs) 遷移至環境變數。
+- **自動化**: 新增 `weekly_report_task`，每週一 00:00 (UTC+8) 自動產生報告。
+- **時區**: 將所有時間標準化為台灣時間 (UTC+8)。
+- **部署設定**: 新增 `render.yaml` 與 `requirements.txt` 供 Render 部署使用。
 
 ## [1.3] - 2025-11-23 04:09:36
-### Changed
-- **Dynamic Member Fetching**: Replaced hardcoded `USER_IDS` with automatic fetching of all guild members.
-- **Week-based Calculation**: Updated `/compute` to accept week numbers and default to the current week (Mon-Sun).
+### 變更項目
+- **動態成員獲取**: 將硬編碼的 `USER_IDS` 改為自動獲取所有伺服器成員。
+- **週次計算**: 更新 `/compute` 接受週數並預設為當前週 (週一至週日)。
 
 ## [1.2] - 2025-11-21 14:18:25
-### Fixed
-- **Slash Commands**: Fixed registration issues for `trycompute` and other commands.
-- **Permissions**: Added checks for teacher-only commands.
+### 修正項目
+- **Slash Commands**: 修復 `trycompute` 等指令的註冊問題。
+- **權限**: 為老師專用指令新增權限檢查。
 
 ## [1.1] - 2025-11-09 12:00:00
-- Initial release with basic tracking and grading logic.
+- 初始版本，包含基本的追蹤與評分邏輯。
