@@ -12,7 +12,7 @@ from keep_alive import keep_alive
 # 載入 .env 檔案 (本地開發用)
 load_dotenv()
 
-VERSION = "1.1.0 Online"
+VERSION = "1.1.1 Online"
 
 # ====== 設定參數 (從環境變數讀取) ======
 TOKEN = os.getenv("TOKEN")
@@ -465,6 +465,70 @@ class OCWCog(commands.Cog):
         msg += f"排名: #{s.rank} (在 {len(stats)} 人中)"
         
         await interaction.followup.send(msg)
+
+    async def _announce_file(self, interaction: discord.Interaction, channel: discord.TextChannel, filename: str, title: str):
+        """內部 helper: 讀取檔案並發送公告"""
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ 只有管理員可以使用", ephemeral=True)
+            return
+
+        target_channel = channel or self.bot.get_channel(ANNOUNCEMENT_CHANNEL_ID)
+        if not target_channel:
+            await interaction.response.send_message("❌ 找不到目標頻道", ephemeral=True)
+            return
+
+        try:
+            with open(filename, "r", encoding="utf-8") as f:
+                content = f.read()
+        except FileNotFoundError:
+            await interaction.response.send_message(f"❌ 找不到 {filename} 檔案", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            # 簡單的分段發送
+            if len(content) <= 2000:
+                await target_channel.send(content)
+            else:
+                chunks = [content[i:i+2000] for i in range(0, len(content), 2000)]
+                for chunk in chunks:
+                    await target_channel.send(chunk)
+            
+            await interaction.followup.send(f"✅ {title} 已發送至 {target_channel.mention}")
+        except Exception as e:
+            await interaction.followup.send(f"❌ 發送失敗: {e}")
+
+    @app_commands.command(name="announce_release_note", description="發布 Release Note (管理員專用)")
+    @app_commands.guilds(GUILD_ID)
+    @app_commands.describe(channel="指定發送頻道 (預設為公告頻道)")
+    async def announce_release_note(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
+        await self._announce_file(interaction, channel, "RELEASE_NOTE.md", "Release Note")
+
+    @app_commands.command(name="announce_changelog", description="發布 Changelog (管理員專用)")
+    @app_commands.guilds(GUILD_ID)
+    @app_commands.describe(channel="指定發送頻道 (預設為公告頻道)")
+    async def announce_changelog(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
+        await self._announce_file(interaction, channel, "CHANGELOG.md", "Changelog")
+
+    @app_commands.command(name="announce_readme", description="發布 README (管理員專用)")
+    @app_commands.guilds(GUILD_ID)
+    @app_commands.describe(channel="指定發送頻道 (預設為公告頻道)")
+    async def announce_readme(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
+        await self._announce_file(interaction, channel, "README.md", "README")
+
+    @app_commands.command(name="announce_roadmap", description="發布 Roadmap (管理員專用)")
+    @app_commands.guilds(GUILD_ID)
+    @app_commands.describe(channel="指定發送頻道 (預設為公告頻道)")
+    async def announce_roadmap(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
+        await self._announce_file(interaction, channel, "ROADMAP.md", "Roadmap")
+
+    # 保留舊指令作為 Alias，指向 release note
+    @app_commands.command(name="announce_update", description="發布更新公告 (同 announce_release_note)")
+    @app_commands.guilds(GUILD_ID)
+    @app_commands.describe(channel="指定發送頻道 (預設為公告頻道)")
+    async def announce_update(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
+        await self._announce_file(interaction, channel, "RELEASE_NOTE.md", "Release Note")
 
     @app_commands.command(name="export", description="匯出成績資料 (CSV)")
     @app_commands.guilds(GUILD_ID)

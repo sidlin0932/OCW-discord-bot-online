@@ -11,7 +11,7 @@
 - **24/7 在線**: 內建 Web Server (Flask) 與 Render 部署設定，可配合 UptimeRobot 實現全天候運作。
 
 ## 檔案結構
-- `emoji_online_1.1.0.py`: 機器人核心程式碼 (v1.1.0)。
+- `bot.py`: 機器人核心程式碼 (v1.1.1)。
 - `keep_alive.py`: 用於保持 Render 服務運作的網頁伺服器。
 - `requirements.txt`: Python 套件需求清單。
 - `render.yaml`: Render 部署設定檔。
