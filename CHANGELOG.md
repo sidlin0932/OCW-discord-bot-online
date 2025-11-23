@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.2 Online] - 2025-11-23
+### Changed
+- **Enhanced Auto-Publish**:
+    - `README` & `ROADMAP`: Now use **Embeds** with color highlighting (Green for Latest, Grey for History).
+    - `RELEASE_NOTE`: Now checks for version string existence to avoid duplicates.
+    - `CHANGELOG`: Continues to support smart history backfilling.
+- **Configuration**: Thread IDs are now loaded from `.env` for better security.
+
 ## [1.1.1 Online] - 2025-11-23
 ### Changed
 - **Refactor**: Renamed main bot file to `bot.py` for easier deployment.
@@ -9,7 +17,7 @@
 ### Added
 - **Month & Custom Range**: `/compute` now supports `month` (e.g., `month:11`) and custom date ranges (`start_date`, `end_date`).
 - **Date Range Display**: All statistics commands (`leaderboard`, `matrix`, etc.) now explicitly show the calculated date range (e.g., "2025-11-01 ~ 2025-11-30").
-- **Announce Docs**: Added `/announce_release_note`, `/announce_changelog`, `/announce_readme`, `/announce_roadmap` for admins to post documentation.
+- **Auto-Publish Docs**: Bot now automatically updates `README`, `ROADMAP`, `CHANGELOG`, and `RELEASE_NOTE` in their respective Forum Threads on startup.
 
 ## [1.0 Online] - 2025-11-23
 ### Added

@@ -12,14 +12,21 @@ from keep_alive import keep_alive
 # 載入 .env 檔案 (本地開發用)
 load_dotenv()
 
-VERSION = "1.1.1 Online"
+VERSION = "1.1.2 Online"
 
 # ====== 設定參數 (從環境變數讀取) ======
 TOKEN = os.getenv("TOKEN")
 GUILD_ID = int(os.getenv("GUILD_ID", 0))
 FORUM_ID = int(os.getenv("FORUM_ID", 0))
 ANNOUNCEMENT_CHANNEL_ID = int(os.getenv("ANNOUNCEMENT_CHANNEL_ID", 0)) # 需在 .env 設定
-BOT_ID = 1436621968601514054  # Bot 的 ID (通常固定，也可改環境變數)
+BOT_ID = 1436621968601514054  # Bot 的 ID
+
+# 文件對應的 Thread ID (從環境變數讀取)
+THREAD_ID_README = int(os.getenv("THREAD_ID_README", 0))
+THREAD_ID_ROADMAP = int(os.getenv("THREAD_ID_ROADMAP", 0))
+THREAD_ID_CHANGELOG = int(os.getenv("THREAD_ID_CHANGELOG", 0))
+THREAD_ID_RELEASE_NOTE = int(os.getenv("THREAD_ID_RELEASE_NOTE", 0))
+
 TEACHER_IDS = [983244573289623592]
 EMOJI_TO_USE = "🆗"
 
@@ -466,70 +473,6 @@ class OCWCog(commands.Cog):
         
         await interaction.followup.send(msg)
 
-    async def _announce_file(self, interaction: discord.Interaction, channel: discord.TextChannel, filename: str, title: str):
-        """內部 helper: 讀取檔案並發送公告"""
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("❌ 只有管理員可以使用", ephemeral=True)
-            return
-
-        target_channel = channel or self.bot.get_channel(ANNOUNCEMENT_CHANNEL_ID)
-        if not target_channel:
-            await interaction.response.send_message("❌ 找不到目標頻道", ephemeral=True)
-            return
-
-        try:
-            with open(filename, "r", encoding="utf-8") as f:
-                content = f.read()
-        except FileNotFoundError:
-            await interaction.response.send_message(f"❌ 找不到 {filename} 檔案", ephemeral=True)
-            return
-
-        await interaction.response.defer(ephemeral=True)
-        
-        try:
-            # 簡單的分段發送
-            if len(content) <= 2000:
-                await target_channel.send(content)
-            else:
-                chunks = [content[i:i+2000] for i in range(0, len(content), 2000)]
-                for chunk in chunks:
-                    await target_channel.send(chunk)
-            
-            await interaction.followup.send(f"✅ {title} 已發送至 {target_channel.mention}")
-        except Exception as e:
-            await interaction.followup.send(f"❌ 發送失敗: {e}")
-
-    @app_commands.command(name="announce_release_note", description="發布 Release Note (管理員專用)")
-    @app_commands.guilds(GUILD_ID)
-    @app_commands.describe(channel="指定發送頻道 (預設為公告頻道)")
-    async def announce_release_note(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
-        await self._announce_file(interaction, channel, "RELEASE_NOTE.md", "Release Note")
-
-    @app_commands.command(name="announce_changelog", description="發布 Changelog (管理員專用)")
-    @app_commands.guilds(GUILD_ID)
-    @app_commands.describe(channel="指定發送頻道 (預設為公告頻道)")
-    async def announce_changelog(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
-        await self._announce_file(interaction, channel, "CHANGELOG.md", "Changelog")
-
-    @app_commands.command(name="announce_readme", description="發布 README (管理員專用)")
-    @app_commands.guilds(GUILD_ID)
-    @app_commands.describe(channel="指定發送頻道 (預設為公告頻道)")
-    async def announce_readme(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
-        await self._announce_file(interaction, channel, "README.md", "README")
-
-    @app_commands.command(name="announce_roadmap", description="發布 Roadmap (管理員專用)")
-    @app_commands.guilds(GUILD_ID)
-    @app_commands.describe(channel="指定發送頻道 (預設為公告頻道)")
-    async def announce_roadmap(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
-        await self._announce_file(interaction, channel, "ROADMAP.md", "Roadmap")
-
-    # 保留舊指令作為 Alias，指向 release note
-    @app_commands.command(name="announce_update", description="發布更新公告 (同 announce_release_note)")
-    @app_commands.guilds(GUILD_ID)
-    @app_commands.describe(channel="指定發送頻道 (預設為公告頻道)")
-    async def announce_update(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
-        await self._announce_file(interaction, channel, "RELEASE_NOTE.md", "Release Note")
-
     @app_commands.command(name="export", description="匯出成績資料 (CSV)")
     @app_commands.guilds(GUILD_ID)
     async def export(self, interaction: discord.Interaction):
@@ -573,6 +516,166 @@ class MyBot(commands.Bot):
 
     async def on_ready(self):
         print(f"✅ Bot 已登入: {self.user}")
+        # 啟動時檢查並更新文件
+        self.bg_task = self.loop.create_task(self.check_and_update_docs())
+
+    async def check_and_update_docs(self):
+        """自動檢查並更新論壇文件"""
+        await self.wait_until_ready()
+        print("🔍 開始檢查文件更新...")
+        
+        # 1. README (Highlight Mode)
+        await self._update_doc_highlight_mode(THREAD_ID_README, "README.md", "README")
+        
+        # 2. ROADMAP (Highlight Mode)
+        await self._update_doc_highlight_mode(THREAD_ID_ROADMAP, "ROADMAP.md", "ROADMAP")
+        
+        # 3. RELEASE_NOTE (Version Check Mode)
+        await self._update_doc_version_check(THREAD_ID_RELEASE_NOTE, "RELEASE_NOTE.md", "Release Note")
+        
+        # 4. CHANGELOG (Smart History Mode)
+        await self._update_doc_changelog_smart(THREAD_ID_CHANGELOG, "CHANGELOG.md")
+        
+        print("✅ 文件檢查完成")
+
+    async def _update_doc_highlight_mode(self, thread_id: int, filename: str, title: str):
+        """模式 A (增強版): 使用 Embed 標示最新版 (綠色) 與歷史版 (灰色)"""
+        try:
+            channel = self.get_channel(thread_id)
+            if not channel or not isinstance(channel, discord.Thread):
+                try:
+                    channel = await self.fetch_channel(thread_id)
+                except:
+                    print(f"❌ 無法獲取 {title} 貼文 (ID: {thread_id})")
+                    return
+
+            with open(filename, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            # 檢查最後一則訊息
+            last_msg = None
+            async for message in channel.history(limit=1):
+                last_msg = message
+                break
+
+            # 判斷是否需要更新
+            # 這裡我們比較 Embed 的 description (如果有的話) 或是 content
+            current_content_in_discord = ""
+            if last_msg:
+                if last_msg.embeds:
+                    current_content_in_discord = last_msg.embeds[0].description
+                else:
+                    current_content_in_discord = last_msg.content
+
+            if current_content_in_discord == content:
+                print(f"ℹ️ {title} 已是最新")
+                return
+
+            # 需要更新：
+            # 1. 把上一則 (如果是最新版) 改成灰色 [History]
+            if last_msg and last_msg.author.id == self.user.id:
+                # 只有當它原本是 [Latest] 才需要改，但簡單起見我們都把它變灰
+                try:
+                    prev_content = last_msg.embeds[0].description if last_msg.embeds else last_msg.content
+                    history_embed = discord.Embed(
+                        title=f"📜 {title} [History]",
+                        description=prev_content,
+                        color=discord.Color.light_grey() # 灰色
+                    )
+                    await last_msg.edit(content=None, embed=history_embed)
+                except Exception as e:
+                    print(f"⚠️ 無法修改舊訊息: {e}")
+
+            # 2. 發送新的一則 (綠色 [Latest])
+            new_embed = discord.Embed(
+                title=f"✨ {title} [Latest]",
+                description=content,
+                color=0x2ecc71 # 綠色
+            )
+            await channel.send(embed=new_embed)
+            print(f"✅ {title} 已發布新版本 (Highlight)")
+
+        except Exception as e:
+            print(f"❌ 更新 {title} 失敗: {e}")
+
+    async def _update_doc_version_check(self, thread_id: int, filename: str, title: str):
+        """模式 B (增強版): 檢查版本號 (第一行) 是否存在於歷史紀錄"""
+        try:
+            channel = await self.fetch_channel(thread_id)
+            with open(filename, "r", encoding="utf-8") as f:
+                content = f.read()
+                f.seek(0)
+                first_line = f.readline().strip() # e.g., "# Release Note: v1.1.2 Online"
+
+            # 提取版本號特徵 (簡單用第一行整行來比對)
+            version_signature = first_line
+            
+            is_posted = False
+            async for message in channel.history(limit=20):
+                # 檢查 Content 或 Embed Title/Description
+                msg_text = message.content
+                if message.embeds:
+                    msg_text += (message.embeds[0].title or "") + (message.embeds[0].description or "")
+                
+                if version_signature in msg_text:
+                    is_posted = True
+                    break
+            
+            if not is_posted:
+                await channel.send(content)
+                print(f"✅ {title} 已發布新版本: {version_signature}")
+            else:
+                print(f"ℹ️ {title} ({version_signature}) 已存在")
+
+        except Exception as e:
+            print(f"❌ 更新 {title} 失敗: {e}")
+
+    async def _update_doc_changelog_smart(self, thread_id: int, filename: str):
+        """模式 C: 智慧 Changelog - 補齊缺失的舊版本"""
+        try:
+            channel = await self.fetch_channel(thread_id)
+            with open(filename, "r", encoding="utf-8") as f:
+                full_content = f.read()
+
+            import re
+            parts = re.split(r'(^## \[.*\])', full_content, flags=re.MULTILINE)
+            
+            version_blocks = [] 
+            start_idx = 1 if len(parts) > 1 and parts[1].startswith("## [") else 0
+            
+            for i in range(start_idx, len(parts), 2):
+                if i+1 < len(parts):
+                    header = parts[i].strip()
+                    body = parts[i+1]
+                    full_block = header + "\n" + body
+                    ver_match = re.search(r'\[(.*?)\]', header)
+                    ver_key = ver_match.group(1) if ver_match else header
+                    version_blocks.append({"key": ver_key, "content": full_block.strip()})
+
+            history_contents = []
+            async for msg in channel.history(limit=50):
+                history_contents.append(msg.content)
+            
+            posted_count = 0
+            for block in reversed(version_blocks):
+                is_posted = False
+                for h_msg in history_contents:
+                    if block['key'] in h_msg: 
+                        is_posted = True
+                        break
+                
+                if not is_posted:
+                    await channel.send(block['content'])
+                    print(f"✅ Changelog 補齊版本: {block['key']}")
+                    posted_count += 1
+                    import asyncio
+                    await asyncio.sleep(1)
+            
+            if posted_count == 0:
+                print("ℹ️ Changelog 已是最新")
+
+        except Exception as e:
+            print(f"❌ 更新 Changelog 失敗: {e}")
 
 # ====== Run ======
 if __name__ == "__main__":
