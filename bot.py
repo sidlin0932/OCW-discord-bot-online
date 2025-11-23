@@ -13,7 +13,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 # 載入 .env 檔案 (本地開發用)
 load_dotenv()
 
-VERSION = "1.2.1 Online"
+VERSION = "1.2.2 Online"
 
 # ====== 設定參數 (從環境變數讀取) ======
 TOKEN = os.getenv("TOKEN")
@@ -613,6 +613,8 @@ class MyBot(commands.Bot):
         print(f"✅ Bot 已登入: {self.user}")
         # 啟動時檢查並更新文件
         self.bg_task = self.loop.create_task(self.check_and_update_docs())
+        # 啟動時自動計算所有歷史數據（供儀表板使用）
+        self.loop.create_task(self.auto_compute_all_weeks())
 
     async def check_and_update_docs(self):
         """自動檢查並更新論壇文件"""
@@ -635,6 +637,76 @@ class MyBot(commands.Bot):
         await self._update_doc_changelog_smart(THREAD_ID_CHANGELOG, "CHANGELOG.md")
         
         print("✅ 文件檢查完成")
+
+    async def auto_compute_all_weeks(self):
+        """Bot 啟動時自動計算所有歷史週數據（從第 40 週開始，供儀表板使用）"""
+        await self.wait_until_ready()
+        print("📊 自動計算歷史數據...")
+        
+        try:
+            # 定義起始週（2025-10-01 是第 40 週）
+            START_YEAR = 2025
+            START_WEEK = 40
+            
+            # 獲取當前週數
+            now = datetime.now(TZ_TW)
+            current_year, current_week, _ = now.isocalendar()
+            
+            # 計算需要處理的週數
+            computed_count = 0
+            skipped_count = 0
+            
+            # 從起始週循環到當前週
+            for year in range(START_YEAR, current_year + 1):
+                start_week = START_WEEK if year == START_YEAR else 1
+                end_week = current_week if year == current_year else 52
+                
+                for week in range(start_week, end_week + 1):
+                    # 檢查資料庫是否已有該週數據
+                    if weekly_reports_collection:
+                        existing = await weekly_reports_collection.find_one({
+                            "year": year,
+                            "week": week
+                        })
+                        
+                        if existing:
+                            skipped_count += 1
+                            continue
+                    
+                    # 如果沒有，計算並儲存
+                    cog = self.get_cog("OCWCog")
+                    if cog:
+                        try:
+                            s_time, e_time = get_week_range(year, week)
+                            stats = await cog._fetch_data(None, s_time, e_time)
+                            cog._calculate_scores(stats)
+                            
+                            # 儲存到資料庫
+                            if weekly_reports_collection:
+                                report_data = {
+                                    "year": year,
+                                    "week": week,
+                                    "range_str": f"{s_time.strftime('%Y-%m-%d')} ~ {e_time.strftime('%Y-%m-%d')}",
+                                    "stats": [s.to_dict() for s in stats.values()]
+                                }
+                                await weekly_reports_collection.replace_one(
+                                    {"year": year, "week": week},
+                                    report_data,
+                                    upsert=True
+                                )
+                                computed_count += 1
+                                print(f"  ✓ 已計算 Week {week}/{year}")
+                        except Exception as e:
+                            print(f"  ✗ Week {week}/{year} 計算失敗: {e}")
+                    else:
+                        print("❌ 無法找到 OCWCog，自動計算中止")
+                        return
+            
+            print(f"✅ 自動計算完成：新增 {computed_count} 週，跳過 {skipped_count} 週")
+                
+        except Exception as e:
+            print(f"❌ 自動計算失敗: {e}")
+
 
     async def _update_doc_highlight_mode(self, thread_id: int, filename: str, title: str):
         """模式 A (增強版): 使用 Embed 標示最新版 (綠色) 與歷史版 (灰色)"""

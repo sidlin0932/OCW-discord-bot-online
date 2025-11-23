@@ -1,4 +1,4 @@
-# Roadmap (Current: v1.2.1 Online)
+# Roadmap (Current: v1.2.2 Online)
 
 ## 未來規劃 (Future Plans)
 

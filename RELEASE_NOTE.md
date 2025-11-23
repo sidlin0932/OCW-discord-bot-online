@@ -1,22 +1,35 @@
-# Release Note: v1.2.1 Online
+# Release Note: v1.2.2 Online
 
-## 🚀 小更新：文件與部署優化
+## 📈 新功能：趨勢圖儀表板
 
-### 1. 部署指南自動發布
-Bot 現在會自動在 **README 論壇貼文**下方以**文件附件**形式發布完整的部署指南 (DEPLOY_GUIDE.md)！
-- 不再占用版面，保持 README 簡潔。
-- 點擊附件即可查看詳細的 Render 部署步驟、MongoDB 設定與環境變數說明。
+### 1. 學生得分趨勢圖
+我們新增了 **趨勢圖頁面**，讓您可以一目了然地看到所有學生的進步曲線！
 
-### 2. 文件完善
-- **新增 `DEPLOY_GUIDE.md`**: 從 GitHub 上傳到 Render 部署的完整教學。
-- **優化 `README.md`**: 明確標註 Root Directory 設定重點。
-- **更新 `ROADMAP.md`**: 未來版本將聚焦實用的 OCW 社群功能（讀書會系統、資源共享圖書館、Office Hours 隊列等）。
+🔗 **趨勢圖連結**: https://ocw-discord-bot-online.onrender.com/trends
 
-### 3. 資料庫與儀表板 (延續 v1.2.0)
-提醒您別忘了在 Render 設定 `MONGO_URI` 環境變數，才能啟用資料持久化與網頁儀表板功能！
+**特色功能：**
+- 📊 **互動式折線圖**：使用 Chart.js 繪製，可 Hover 查看詳細數據
+- 🔍 **學生篩選**：用 Checkbox 選擇要比較的學生，方便對照
+- 📅 **完整歷史**：顯示從學期開始（第 40 週）到現在的所有資料
 
-🔗 **Dashboard Link**: [請替換為您的 Render 網址]
-*(例如: https://ocw-discord-bot.onrender.com)*
+### 2. 自動計算歷史數據
+Bot 現在會在啟動時**自動計算所有歷史週次的數據**！
+
+- 從第 40 週（2025-10-01）開始
+- 自動跳過已存在的資料，只計算缺失的週次
+- 確保趨勢圖隨時都有完整數據顯示
+
+### 3. 儀表板改進
+- 主頁新增「📈 趨勢圖」連結，方便快速切換
+
+---
+
+**溫馨提醒：**
+首次部署後，Bot 可能需要幾分鐘來計算所有歷史數據，請耐心等候！
+
+🔗 **主要連結**:
+- 儀表板: https://ocw-discord-bot-online.onrender.com/
+- 趨勢圖: https://ocw-discord-bot-online.onrender.com/trends
 
 ---
 *此更新由 Bot 自動發布*
