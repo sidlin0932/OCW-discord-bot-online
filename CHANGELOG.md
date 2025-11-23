@@ -1,0 +1,22 @@
+# Changelog
+
+## [1.0 Online] - 2025-11-23
+### Added
+- **24/7 Online Support**: Integrated Flask web server (`keep_alive.py`) for cloud hosting.
+- **Security**: Migrated sensitive data (Token, IDs) to environment variables.
+- **Automation**: Added `weekly_report_task` to auto-generate reports every Monday at 00:00 (UTC+8).
+- **Timezone**: Standardized all times to Taiwan Time (UTC+8).
+- **Deployment Config**: Added `render.yaml` and `requirements.txt` for Render deployment.
+
+## [1.3] - 2025-11-23
+### Changed
+- **Dynamic Member Fetching**: Replaced hardcoded `USER_IDS` with automatic fetching of all guild members.
+- **Week-based Calculation**: Updated `/compute` to accept week numbers and default to the current week (Mon-Sun).
+
+## [1.2] - 2025-11-21
+### Fixed
+- **Slash Commands**: Fixed registration issues for `trycompute` and other commands.
+- **Permissions**: Added checks for teacher-only commands.
+
+## [1.1] - 2025-11-09
+- Initial release with basic tracking and grading logic.
