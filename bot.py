@@ -13,7 +13,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 # 載入 .env 檔案 (本地開發用)
 load_dotenv()
 
-VERSION = "1.2.2 Online"
+VERSION = "1.2.3 Online"
 
 # ====== 設定參數 (從環境變數讀取) ======
 TOKEN = os.getenv("TOKEN")
@@ -204,14 +204,19 @@ class OCWCog(commands.Cog):
         return stats_map
 
     def _calculate_scores(self, stats_map: Dict[int, UserStats]):
-        """計算分數與成就"""
+        """計算分數與成就（綜合評分：留言50% + 按讚30% + 討論串20%）"""
         bot_stat = stats_map.get(BOT_ID)
-        bot_reacts = bot_stat.reaction_count if bot_stat else 1
-        if bot_reacts == 0: bot_reacts = 1
+        bot_messages = bot_stat.message_count if bot_stat and bot_stat.message_count > 0 else 1
+        bot_reactions = bot_stat.reaction_count if bot_stat and bot_stat.reaction_count > 0 else 1
+        bot_threads = len(bot_stat.threads_participated) if bot_stat and bot_stat.threads_participated else 1
 
         for uid, stat in stats_map.items():
-            # Bonus 已經在 _fetch_data 從 DB 讀取了
-            raw_score = (stat.reaction_count / bot_reacts * 20 + 80) + stat.bonus
+            # 綜合評分：留言 50% + 按讚 30% + 討論串 20%
+            message_score = (stat.message_count / bot_messages) * 10  # 最高 10 分
+            reaction_score = (stat.reaction_count / bot_reactions) * 6  # 最高 6 分
+            thread_score = (len(stat.threads_participated) / bot_threads) * 4  # 最高 4 分
+            
+            raw_score = 80 + message_score + reaction_score + thread_score + stat.bonus
             stat.percent_score = min(raw_score, 100)
             stat.grade, stat.gpa = calculate_grade_gpa(stat.percent_score)
 
@@ -641,7 +646,13 @@ class MyBot(commands.Bot):
     async def auto_compute_all_weeks(self):
         """Bot 啟動時自動計算所有歷史週數據（從第 40 週開始，供儀表板使用）"""
         await self.wait_until_ready()
-        print("📊 自動計算歷史數據...")
+        
+        # 等待 30 秒讓 Discord Cache 完全載入
+        print("📊 準備自動計算歷史數據，等待 Discord Cache 載入...")
+        import asyncio
+        await asyncio.sleep(30)
+        
+        print("📊 開始自動計算歷史數據...")
         
         try:
             # 定義起始週（2025-10-01 是第 40 週）
@@ -654,7 +665,6 @@ class MyBot(commands.Bot):
             
             # 計算需要處理的週數
             computed_count = 0
-            skipped_count = 0
             
             # 從起始週循環到當前週
             for year in range(START_YEAR, current_year + 1):
@@ -662,18 +672,7 @@ class MyBot(commands.Bot):
                 end_week = current_week if year == current_year else 52
                 
                 for week in range(start_week, end_week + 1):
-                    # 檢查資料庫是否已有該週數據
-                    if weekly_reports_collection is not None:
-                        existing = await weekly_reports_collection.find_one({
-                            "year": year,
-                            "week": week
-                        })
-                        
-                        if existing:
-                            skipped_count += 1
-                            continue
-                    
-                    # 如果沒有，計算並儲存
+                    # 強制重新計算所有週次（覆蓋舊數據）
                     cog = self.get_cog("OCWCog")
                     if cog:
                         try:
@@ -702,7 +701,7 @@ class MyBot(commands.Bot):
                         print("❌ 無法找到 OCWCog，自動計算中止")
                         return
             
-            print(f"✅ 自動計算完成：新增 {computed_count} 週，跳過 {skipped_count} 週")
+            print(f"✅ 自動計算完成：已更新 {computed_count} 週")
                 
         except Exception as e:
             print(f"❌ 自動計算失敗: {e}")

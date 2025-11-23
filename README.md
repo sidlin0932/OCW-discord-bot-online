@@ -1,4 +1,4 @@
-# OCW Discord Bot (v1.2.2 Online)
+# OCW Discord Bot (v1.2.3 Online)
 
 ## 功能特色
 
