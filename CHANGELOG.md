@@ -1,5 +1,16 @@
 # 更新日誌 (Changelog)
 
+## [1.2.1 Online] - 2025-11-23 23:45:08
+### 新增功能
+- **DEPLOY_GUIDE 自動回覆**:
+    - Bot 啟動時會自動在 README 論壇貼文下方以**文件附件**形式發布 `DEPLOY_GUIDE.md`。
+    - 避免長文占用版面，點擊即可查看完整部署指南。
+### 改進項目
+- **文件完善**:
+    - 新增詳細的 `DEPLOY_GUIDE.md`，包含 MongoDB 設定與環境變數說明。
+    - 更新 `README.md`，明確標註 Render Root Directory 設定重點。
+    - 優化 `ROADMAP.md`，聚焦實用 OCW 社群功能 (讀書會、資源庫、Office Hours)。
+
 ## [1.2.0 Online] - 2025-11-23 23:21:28
 ### 新增功能
 - **資料庫整合 (MongoDB Integration)**:

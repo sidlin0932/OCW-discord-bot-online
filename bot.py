@@ -13,7 +13,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 # 載入 .env 檔案 (本地開發用)
 load_dotenv()
 
-VERSION = "1.2.0 Online"
+VERSION = "1.2.1 Online"
 
 # ====== 設定參數 (從環境變數讀取) ======
 TOKEN = os.getenv("TOKEN")
@@ -622,6 +622,9 @@ class MyBot(commands.Bot):
         # 1. README (Highlight Mode)
         await self._update_doc_highlight_mode(THREAD_ID_README, "README.md", "README")
         
+        # 1.5. DEPLOY_GUIDE (作為 README 的回覆)
+        await self._reply_deploy_guide_to_readme(THREAD_ID_README, "DEPLOY_GUIDE.md")
+        
         # 2. ROADMAP (Highlight Mode)
         await self._update_doc_highlight_mode(THREAD_ID_ROADMAP, "ROADMAP.md", "ROADMAP")
         
@@ -692,6 +695,34 @@ class MyBot(commands.Bot):
 
         except Exception as e:
             print(f"❌ 更新 {title} 失敗: {e}")
+
+    async def _reply_deploy_guide_to_readme(self, thread_id: int, filename: str):
+        """在 README thread 下方自動回覆 DEPLOY_GUIDE.md（以文件形式）"""
+        try:
+            channel = await self.fetch_channel(thread_id)
+            
+            # 檢查是否已經有 DEPLOY_GUIDE 的回覆
+            deploy_marker = "📘 部署指南 (DEPLOY_GUIDE)"
+            is_posted = False
+            
+            async for message in channel.history(limit=50):
+                if deploy_marker in message.content and message.attachments:
+                    is_posted = True
+                    print("ℹ️ DEPLOY_GUIDE 已存在")
+                    # 注意：Discord 不支持編輯帶附件的訊息，所以如果已存在就跳過
+                    return
+            
+            # 如果不存在，發送新回覆（文件形式）
+            file = discord.File(filename, filename=filename)
+            await channel.send(
+                content=f"{deploy_marker}\n\n點擊下方文件查看完整的部署步驟說明 👇",
+                file=file
+            )
+            print("✅ DEPLOY_GUIDE 已發布為 README 回覆（文件形式）")
+
+        except Exception as e:
+            print(f"❌ 發布 DEPLOY_GUIDE 失敗: {e}")
+
 
     async def _update_doc_version_check(self, thread_id: int, filename: str, title: str):
         """模式 B (增強版): 檢查版本號 (第一行) 是否存在於歷史紀錄"""

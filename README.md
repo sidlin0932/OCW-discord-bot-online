@@ -1,4 +1,4 @@
-# OCW Discord Bot (v1.2.0 Online)
+# OCW Discord Bot (v1.2.1 Online)
 
 ## 功能特色
 - **成就系統**: 自動頒發成就徽章 (e.g., 🗣️ Chatterbox, ❤️ Supporter)。
@@ -13,12 +13,12 @@
 - `render.yaml`: Render 部署設定檔。
 
 ## 部署教學
-詳細部署步驟請參考 [DEPLOY_GUIDE.md](DEPLOY_GUIDE.md) (或參考本儲存庫中的說明)。
+詳細部署步驟請參考 [DEPLOY_GUIDE.md](DEPLOY_GUIDE.md)。
 
 ### 快速開始 (Render)
 1. Fork 本專案或上傳至您的 GitHub。
-2. 在 Render 建立 Web Service。
-3. 設定環境變數 (`TOKEN`, `GUILD_ID` 等)。
+2. 在 Render 建立 Web Service (Root Directory 設為 `OCW-discord-bot-online`)。
+3. 設定環境變數 (參考下方表格)。
 4. 使用 UptimeRobot 監控 Render 網址以防止休眠。
 
 ## 環境變數
