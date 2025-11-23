@@ -3,7 +3,7 @@ services:
     name: discord-bot
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: python emoji_online_1.0.py
+    startCommand: python emoji_online_1.1.0.py
     envVars:
       - key: PYTHON_VERSION
         value: 3.10.0

@@ -12,7 +12,7 @@ from keep_alive import keep_alive
 # 載入 .env 檔案 (本地開發用)
 load_dotenv()
 
-VERSION = "1.0 Online"
+VERSION = "1.1.0 Online"
 
 # ====== 設定參數 (從環境變數讀取) ======
 TOKEN = os.getenv("TOKEN")
@@ -28,13 +28,21 @@ TZ_TW = timezone(timedelta(hours=8))
 
 def get_week_range(year: int, week: int):
     """回傳指定 ISO 週的 (start_time, end_time)"""
-    # 找該年該週的星期一
-    # fromisocalendar(year, week, day) -> day 1 is Monday
     start_date = date.fromisocalendar(year, week, 1)
     end_date = date.fromisocalendar(year, week, 7)
+    start_time = datetime.combine(start_date, datetime.min.time()).replace(tzinfo=TZ_TW)
+    end_time = datetime.combine(end_date, datetime.max.time()).replace(tzinfo=TZ_TW)
+    return start_time, end_time
+
+def get_month_range(year: int, month: int):
+    """回傳指定月份的 (start_time, end_time)"""
+    start_date = date(year, month, 1)
+    if month == 12:
+        next_month = date(year + 1, 1, 1)
+    else:
+        next_month = date(year, month + 1, 1)
+    end_date = next_month - timedelta(days=1)
     
-    # 轉為 datetime (UTC+8)
-    # 注意: 這裡我們統一用 TZ_TW
     start_time = datetime.combine(start_date, datetime.min.time()).replace(tzinfo=TZ_TW)
     end_time = datetime.combine(end_date, datetime.max.time()).replace(tzinfo=TZ_TW)
     return start_time, end_time
@@ -78,6 +86,7 @@ class OCWCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.last_stats: Dict[int, UserStats] = {}
+        self.last_range_str = "尚無資料" # 儲存上次計算的日期範圍字串
         self.weekly_report_task.start() # 啟動排程任務
 
     def cog_unload(self):
@@ -196,23 +205,22 @@ class OCWCog(commands.Cog):
                 return
 
             # 計算上一週的範圍
-            # 今天的 ISO 週數
             current_year, current_week, _ = now.isocalendar()
-            
-            # 上一週 (如果本週是第1週，則上一週是去年的最後一週，這裡簡化處理，datetime會自動處理)
-            # 比較簡單的方法是找 "7天前" 的那個日期所在的週
             last_week_date = now - timedelta(days=7)
             target_year, target_week, _ = last_week_date.isocalendar()
             
             s_time, e_time = get_week_range(target_year, target_week)
             
-            # 執行計算 (interaction=None)
+            # 執行計算
             stats = await self._fetch_data(None, s_time, e_time)
             self._calculate_scores(stats)
             self.last_stats = stats
+            
+            # 更新日期範圍字串
+            self.last_range_str = f"Week {target_week} | {s_time.date()} ~ {e_time.date()}"
 
             # 產生報告
-            msg = f"📢 **自動週報** (Week {target_week} | {s_time.date()} ~ {e_time.date()})\n"
+            msg = f"📢 **自動週報** ({self.last_range_str})\n"
             sorted_users = sorted(stats.values(), key=lambda x: x.rank if x.rank > 0 else 999)
             
             for s in sorted_users:
@@ -223,7 +231,7 @@ class OCWCog(commands.Cog):
             await channel.send(msg[:2000])
             
             # 產生排行榜 (前 10 名)
-            leaderboard_msg = "🏆 **本週排行榜**\n"
+            leaderboard_msg = f"🏆 **本週排行榜** ({self.last_range_str})\n"
             for s in sorted_users[:10]:
                 medal = "🥇" if s.rank == 1 else "🥈" if s.rank == 2 else "🥉" if s.rank == 3 else f"{s.rank}."
                 leaderboard_msg += f"{medal} **{s.name}** - {s.percent_score:.1f}%\n"
@@ -254,27 +262,54 @@ class OCWCog(commands.Cog):
         self.bot.bonus_points.clear()
         await interaction.response.send_message("✅ 已重置所有加分", ephemeral=True)
 
-    @app_commands.command(name="compute", description="計算成績與統計 (預設本週)")
+    @app_commands.command(name="compute", description="計算成績與統計 (支援週/月/自訂)")
     @app_commands.guilds(GUILD_ID)
-    @app_commands.describe(week="ISO 週數 (預設本週)", year="年份 (預設今年)")
-    async def compute(self, interaction: discord.Interaction, week: int = None, year: int = None):
+    @app_commands.describe(
+        week="ISO 週數 (例如 45)", 
+        month="月份 (例如 11)", 
+        year="年份 (預設今年)",
+        start_date="開始日期 (YYYY-MM-DD)",
+        end_date="結束日期 (YYYY-MM-DD)"
+    )
+    async def compute(self, interaction: discord.Interaction, 
+                      week: int = None, month: int = None, year: int = None,
+                      start_date: str = None, end_date: str = None):
         await interaction.response.defer()
         
         now = datetime.now(TZ_TW)
         target_year = year or now.year
-        target_week = week or now.isocalendar()[1]
         
         try:
-            s_time, e_time = get_week_range(target_year, target_week)
-        except ValueError:
-            await interaction.followup.send("❌ 無效的週數或年份")
+            if start_date and end_date:
+                # 自訂日期模式
+                s_date = datetime.strptime(start_date, "%Y-%m-%d").date()
+                e_date = datetime.strptime(end_date, "%Y-%m-%d").date()
+                s_time = datetime.combine(s_date, datetime.min.time()).replace(tzinfo=TZ_TW)
+                e_time = datetime.combine(e_date, datetime.max.time()).replace(tzinfo=TZ_TW)
+                range_label = f"Custom | {s_date} ~ {e_date}"
+            elif month:
+                # 月份模式
+                s_time, e_time = get_month_range(target_year, month)
+                range_label = f"Month {month} | {s_time.date()} ~ {e_time.date()}"
+            else:
+                # 週模式 (預設)
+                target_week = week or now.isocalendar()[1]
+                s_time, e_time = get_week_range(target_year, target_week)
+                range_label = f"Week {target_week} | {s_time.date()} ~ {e_time.date()}"
+                
+            if s_time > e_time:
+                raise ValueError("開始時間不能晚於結束時間")
+                
+        except ValueError as e:
+            await interaction.followup.send(f"❌ 日期錯誤: {e}")
             return
 
         stats = await self._fetch_data(interaction, s_time, e_time)
         self._calculate_scores(stats)
         self.last_stats = stats
+        self.last_range_str = range_label
 
-        msg = f"📊 **統計結果** (Week {target_week} | {s_time.date()} ~ {e_time.date()})\n"
+        msg = f"📊 **統計結果** ({range_label})\n"
         sorted_users = sorted(stats.values(), key=lambda x: x.rank if x.rank > 0 else 999)
         
         for s in sorted_users:
@@ -293,12 +328,9 @@ class OCWCog(commands.Cog):
             return
         
         stat = self.last_stats[target.id]
-        total_days = 7
-        active_days = len(stat.active_days)
-        rate = (active_days / total_days) * 100
         
-        msg = f"📅 **{target.display_name} 的出席狀況**\n"
-        msg += f"出席天數: {active_days} / {total_days} 天 ({rate:.1f}%)\n"
+        msg = f"📅 **{target.display_name} 的出席狀況** ({self.last_range_str})\n"
+        msg += f"活躍天數: {len(stat.active_days)} 天\n"
         msg += f"活躍日期: {', '.join([str(d) for d in sorted(stat.active_days)])}"
         await interaction.response.send_message(msg)
 
@@ -310,7 +342,7 @@ class OCWCog(commands.Cog):
             return
             
         sorted_users = sorted([s for s in self.last_stats.values() if s.uid != BOT_ID], key=lambda x: x.rank)
-        msg = "🏆 **排行榜**\n"
+        msg = f"🏆 **排行榜** ({self.last_range_str})\n"
         for s in sorted_users[:10]:
             medal = "🥇" if s.rank == 1 else "🥈" if s.rank == 2 else "🥉" if s.rank == 3 else f"{s.rank}."
             msg += f"{medal} **{s.name}** - {s.percent_score:.1f}%\n"
@@ -341,9 +373,9 @@ class OCWCog(commands.Cog):
                 inactive_users.append(f"{stat.name} (最後互動: {last_active.date() if last_active.year > 1 else '無'})")
         
         if inactive_users:
-            await interaction.response.send_message(f"⚠️ **過去 {days} 天未活躍學生**:\n" + "\n".join(inactive_users))
+            await interaction.response.send_message(f"⚠️ **過去 {days} 天未活躍學生** ({self.last_range_str}):\n" + "\n".join(inactive_users))
         else:
-            await interaction.response.send_message("✅ 所有學生近期都很活躍！")
+            await interaction.response.send_message(f"✅ 所有學生近期都很活躍！ ({self.last_range_str})")
 
     @app_commands.command(name="matrix", description="顯示參與度矩陣")
     @app_commands.guilds(GUILD_ID)
@@ -354,7 +386,7 @@ class OCWCog(commands.Cog):
             return
 
         stat = self.last_stats[target.id]
-        msg = f"🧩 **{target.display_name} 的參與矩陣**\n"
+        msg = f"🧩 **{target.display_name} 的參與矩陣** ({self.last_range_str})\n"
         
         if not stat.threads_participated:
             msg += "尚無參與紀錄"
@@ -373,7 +405,7 @@ class OCWCog(commands.Cog):
             return
 
         stat = self.last_stats[target.id]
-        embed = discord.Embed(title=f"👤 {target.display_name} 的個人檔案", color=discord.Color.blue())
+        embed = discord.Embed(title=f"👤 {target.display_name} 的個人檔案", description=f"統計範圍: {self.last_range_str}", color=discord.Color.blue())
         embed.add_field(name="等級", value=f"{stat.grade} ({stat.gpa})", inline=True)
         embed.add_field(name="分數", value=f"{stat.percent_score:.1f}", inline=True)
         embed.add_field(name="排名", value=f"#{stat.rank}", inline=True)
@@ -458,7 +490,7 @@ class OCWCog(commands.Cog):
         
         output.seek(0)
         file = discord.File(io.BytesIO(output.getvalue().encode('utf-8-sig')), filename="grades.csv")
-        await interaction.response.send_message("✅ 資料匯出完成", file=file)
+        await interaction.response.send_message(f"✅ 資料匯出完成 ({self.last_range_str})", file=file)
 
 # ====== Bot class ======
 class MyBot(commands.Bot):

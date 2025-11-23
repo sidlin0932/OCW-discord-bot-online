@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.0 Online] - 2025-11-23
+### Added
+- **Month & Custom Range**: `/compute` now supports `month` (e.g., `month:11`) and custom date ranges (`start_date`, `end_date`).
+- **Date Range Display**: All statistics commands (`leaderboard`, `matrix`, etc.) now explicitly show the calculated date range (e.g., "2025-11-01 ~ 2025-11-30").
+
 ## [1.0 Online] - 2025-11-23
 ### Added
 - **24/7 Online Support**: Integrated Flask web server (`keep_alive.py`) for cloud hosting.
