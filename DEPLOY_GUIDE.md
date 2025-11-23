@@ -40,6 +40,25 @@
 | `FORUM_ID` | `987654321` | 論壇頻道 ID |
 | `ANNOUNCEMENT_CHANNEL_ID` | `1122334455` | 週報發送頻道 ID |
 | `MONGO_URI` | `mongodb+srv://...` | MongoDB 連線字串 (含密碼) |
+
+> [!WARNING]
+> **MongoDB 密碼特殊字符處理**
+> 
+> 如果您的 MongoDB 密碼包含特殊字符（如 `@`, `#`, `!`, `/`, `:` 等），必須進行 URL 編碼！
+> 
+> **編碼方法：**
+> 在本地電腦執行以下命令（將 `您的密碼` 替換為實際密碼）：
+> ```bash
+> python -c "from urllib.parse import quote_plus; print(quote_plus('您的密碼'))"
+> ```
+> 
+> 然後將編碼後的密碼填入 `MONGO_URI` 的 `<db_password>` 位置。
+> 
+> **例如：**
+> - 原密碼：`MyP@ss123!`
+> - 編碼後：`MyP%40ss123%21`
+> - 完整 URI：`mongodb+srv://admin:MyP%40ss123%21@cluster.mongodb.net/...`
+
 | `THREAD_ID_README` | `144...` | README 貼文 ID |
 | `THREAD_ID_ROADMAP` | `144...` | ROADMAP 貼文 ID |
 | `THREAD_ID_CHANGELOG` | `144...` | CHANGELOG 貼文 ID |
