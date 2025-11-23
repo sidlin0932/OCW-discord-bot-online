@@ -8,11 +8,12 @@ import os
 from typing import List, Dict, Optional
 from dotenv import load_dotenv
 from keep_alive import keep_alive
+from motor.motor_asyncio import AsyncIOMotorClient
 
 # 載入 .env 檔案 (本地開發用)
 load_dotenv()
 
-VERSION = "1.1.2 Online"
+VERSION = "1.2.0 Online"
 
 # ====== 設定參數 (從環境變數讀取) ======
 TOKEN = os.getenv("TOKEN")
@@ -20,6 +21,7 @@ GUILD_ID = int(os.getenv("GUILD_ID", 0))
 FORUM_ID = int(os.getenv("FORUM_ID", 0))
 ANNOUNCEMENT_CHANNEL_ID = int(os.getenv("ANNOUNCEMENT_CHANNEL_ID", 0)) # 需在 .env 設定
 BOT_ID = 1436621968601514054  # Bot 的 ID
+MONGO_URI = os.getenv("MONGO_URI")
 
 # 文件對應的 Thread ID (從環境變數讀取)
 THREAD_ID_README = int(os.getenv("THREAD_ID_README", 0))
@@ -32,6 +34,20 @@ EMOJI_TO_USE = "🆗"
 
 # 定義台灣時區 (UTC+8)
 TZ_TW = timezone(timedelta(hours=8))
+
+# ====== MongoDB Setup ======
+if MONGO_URI:
+    mongo_client = AsyncIOMotorClient(MONGO_URI)
+    db = mongo_client["ocw_bot_db"]
+    users_collection = db["users"]
+    weekly_reports_collection = db["weekly_reports"]
+    print("✅ MongoDB 連線設定完成")
+else:
+    print("⚠️ 未設定 MONGO_URI，資料庫功能將無法使用")
+    mongo_client = None
+    db = None
+    users_collection = None
+    weekly_reports_collection = None
 
 def get_week_range(year: int, week: int):
     """回傳指定 ISO 週的 (start_time, end_time)"""
@@ -70,9 +86,20 @@ class UserStats:
         self.rank = 0
         self.achievements: List[str] = []
 
-    @property
-    def total_interactions(self):
-        return self.message_count + self.reaction_count
+    def to_dict(self):
+        return {
+            "uid": self.uid,
+            "name": self.name,
+            "message_count": self.message_count,
+            "reaction_count": self.reaction_count,
+            "bonus": self.bonus,
+            "grade": self.grade,
+            "gpa": self.gpa,
+            "percent_score": self.percent_score,
+            "rank": self.rank,
+            "achievements": self.achievements,
+            "active_days_count": len(self.active_days)
+        }
 
 # ====== 計算等級與 GPA ======
 def calculate_grade_gpa(percent_score):
@@ -93,15 +120,14 @@ class OCWCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.last_stats: Dict[int, UserStats] = {}
-        self.last_range_str = "尚無資料" # 儲存上次計算的日期範圍字串
-        self.weekly_report_task.start() # 啟動排程任務
+        self.last_range_str = "尚無資料" 
+        self.weekly_report_task.start() 
 
     def cog_unload(self):
         self.weekly_report_task.cancel()
 
     async def _fetch_data(self, interaction: Optional[discord.Interaction], start_time: datetime, end_time: datetime) -> Dict[int, UserStats]:
         """核心資料抓取邏輯"""
-        # 如果是自動排程，interaction 為 None，需手動獲取 guild
         guild = self.bot.get_guild(GUILD_ID)
         if not guild:
             print("❌ 找不到伺服器")
@@ -122,6 +148,13 @@ class OCWCog(commands.Cog):
         
         if BOT_ID not in stats_map:
              stats_map[BOT_ID] = UserStats(BOT_ID, "Bot")
+
+        # 從 DB 讀取 Bonus Points
+        if users_collection:
+            async for user_doc in users_collection.find():
+                uid = user_doc["_id"]
+                if uid in stats_map:
+                    stats_map[uid].bonus = user_doc.get("bonus", 0)
 
         threads_to_process = []
         # 處理非封存貼文
@@ -160,7 +193,7 @@ class OCWCog(commands.Cog):
                             if user.id in stats_map:
                                 r_stat = stats_map[user.id]
                                 r_stat.reaction_count += 1
-                                r_stat.threads_participated[thread.name] = datetime.now(TZ_TW) # 近似時間
+                                r_stat.threads_participated[thread.name] = datetime.now(TZ_TW) 
 
             if was_archived:
                 try:
@@ -177,7 +210,7 @@ class OCWCog(commands.Cog):
         if bot_reacts == 0: bot_reacts = 1
 
         for uid, stat in stats_map.items():
-            stat.bonus = self.bot.bonus_points.get(uid, 0)
+            # Bonus 已經在 _fetch_data 從 DB 讀取了
             raw_score = (stat.reaction_count / bot_reacts * 20 + 80) + stat.bonus
             stat.percent_score = min(raw_score, 100)
             stat.grade, stat.gpa = calculate_grade_gpa(stat.percent_score)
@@ -203,7 +236,6 @@ class OCWCog(commands.Cog):
     async def weekly_report_task(self):
         """每週一凌晨 00:00 (UTC+8) 執行"""
         now = datetime.now(TZ_TW)
-        # 檢查是否為星期一 (Monday = 0)
         if now.weekday() == 0:
             print("⏰ 執行週報自動化任務...")
             channel = self.bot.get_channel(ANNOUNCEMENT_CHANNEL_ID)
@@ -211,20 +243,34 @@ class OCWCog(commands.Cog):
                 print("❌ 找不到公告頻道，無法發送週報")
                 return
 
-            # 計算上一週的範圍
             current_year, current_week, _ = now.isocalendar()
             last_week_date = now - timedelta(days=7)
             target_year, target_week, _ = last_week_date.isocalendar()
             
             s_time, e_time = get_week_range(target_year, target_week)
             
-            # 執行計算
             stats = await self._fetch_data(None, s_time, e_time)
             self._calculate_scores(stats)
             self.last_stats = stats
-            
-            # 更新日期範圍字串
             self.last_range_str = f"Week {target_week} | {s_time.date()} ~ {e_time.date()}"
+
+            # 儲存週報到 DB
+            if weekly_reports_collection:
+                report_doc = {
+                    "year": target_year,
+                    "week": target_week,
+                    "start_date": s_time,
+                    "end_date": e_time,
+                    "range_str": self.last_range_str,
+                    "stats": [s.to_dict() for s in stats.values()],
+                    "created_at": datetime.now(TZ_TW)
+                }
+                await weekly_reports_collection.replace_one(
+                    {"year": target_year, "week": target_week},
+                    report_doc,
+                    upsert=True
+                )
+                print(f"✅ 週報資料已儲存至 DB (Week {target_week})")
 
             # 產生報告
             msg = f"📢 **自動週報** ({self.last_range_str})\n"
@@ -237,7 +283,6 @@ class OCWCog(commands.Cog):
             
             await channel.send(msg[:2000])
             
-            # 產生排行榜 (前 10 名)
             leaderboard_msg = f"🏆 **本週排行榜** ({self.last_range_str})\n"
             for s in sorted_users[:10]:
                 medal = "🥇" if s.rank == 1 else "🥈" if s.rank == 2 else "🥉" if s.rank == 3 else f"{s.rank}."
@@ -257,8 +302,23 @@ class OCWCog(commands.Cog):
         if not interaction.user.guild_permissions.manage_messages:
             await interaction.response.send_message("❌ 你沒有權限", ephemeral=True)
             return
-        self.bot.bonus_points[member.id] = self.bot.bonus_points.get(member.id, 0) + points
-        await interaction.response.send_message(f"✅ 已給 {member.display_name} 加 {points} 分", ephemeral=False)
+        
+        if not users_collection:
+            await interaction.response.send_message("❌ 資料庫未連接", ephemeral=True)
+            return
+
+        # 更新 DB
+        await users_collection.update_one(
+            {"_id": member.id},
+            {"$inc": {"bonus": points}, "$set": {"name": member.display_name}},
+            upsert=True
+        )
+        
+        # 讀取新分數
+        user_doc = await users_collection.find_one({"_id": member.id})
+        new_bonus = user_doc.get("bonus", 0)
+        
+        await interaction.response.send_message(f"✅ 已給 {member.display_name} 加 {points} 分 (目前總加分: {new_bonus})", ephemeral=False)
 
     @app_commands.command(name="resetpoints", description="重置所有使用者加分")
     @app_commands.guilds(GUILD_ID)
@@ -266,7 +326,12 @@ class OCWCog(commands.Cog):
         if not interaction.user.guild_permissions.manage_messages:
             await interaction.response.send_message("❌ 你沒有權限", ephemeral=True)
             return
-        self.bot.bonus_points.clear()
+        
+        if not users_collection:
+            await interaction.response.send_message("❌ 資料庫未連接", ephemeral=True)
+            return
+
+        await users_collection.update_many({}, {"$set": {"bonus": 0}})
         await interaction.response.send_message("✅ 已重置所有加分", ephemeral=True)
 
     @app_commands.command(name="compute", description="計算成績與統計 (支援週/月/自訂)")
@@ -324,6 +389,36 @@ class OCWCog(commands.Cog):
             badges = " ".join(s.achievements)
             msg += f"**{s.rank}. {s.name}**: {s.percent_score:.1f}% ({s.grade}) | 💬 {s.message_count} | 👍 {s.reaction_count} {badges}\n"
         
+        await interaction.followup.send(msg[:2000])
+
+    @app_commands.command(name="history", description="查詢歷史週報 (從資料庫)")
+    @app_commands.guilds(GUILD_ID)
+    @app_commands.describe(week="ISO 週數", year="年份 (預設今年)")
+    async def history(self, interaction: discord.Interaction, week: int, year: int = None):
+        year = year or datetime.now(TZ_TW).year
+        await interaction.response.defer()
+        
+        if not weekly_reports_collection:
+            await interaction.followup.send("❌ 資料庫未連接")
+            return
+
+        doc = await weekly_reports_collection.find_one({"year": year, "week": week})
+        if not doc:
+            await interaction.followup.send(f"❌ 找不到 {year} Week {week} 的歷史資料")
+            return
+            
+        range_str = doc.get("range_str", "Unknown Range")
+        stats_list = doc.get("stats", [])
+        
+        msg = f"📜 **歷史週報查詢** ({range_str})\n"
+        # 簡單排序
+        sorted_stats = sorted(stats_list, key=lambda x: x.get("rank", 999) if x.get("rank", 0) > 0 else 999)
+        
+        for s in sorted_stats:
+            if s["uid"] == BOT_ID: continue
+            badges = " ".join(s.get("achievements", []))
+            msg += f"**{s['rank']}. {s['name']}**: {s['percent_score']:.1f}% ({s['grade']}) | 💬 {s['message_count']} | 👍 {s['reaction_count']} {badges}\n"
+            
         await interaction.followup.send(msg[:2000])
 
     @app_commands.command(name="attendance", description="查詢出席率")
@@ -507,7 +602,7 @@ class MyBot(commands.Bot):
         intents.message_content = True
         intents.members = True
         super().__init__(command_prefix="!", intents=intents)
-        self.bonus_points = {}
+        self.bonus_points = {} # 這裡保留作為 cache，但主要操作都直接對 DB
 
     async def setup_hook(self):
         await self.add_cog(OCWCog(self))
