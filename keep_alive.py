@@ -120,7 +120,7 @@ DASHBOARD_HTML = """
 
 @app.route('/')
 def dashboard():
-    if not db:
+    if db is None:
         return render_template_string(DASHBOARD_HTML, error="❌ 資料庫未連接 (請檢查 MONGO_URI)", latest_report=None, bonus_users=None)
     
     # Fetch Latest Report
@@ -137,7 +137,7 @@ def dashboard():
 
 @app.route('/api/stats')
 def api_stats():
-    if not db: return {"error": "No DB"}
+    if db is None: return {"error": "No DB"}
     latest = reports_col.find_one(sort=[("year", -1), ("week", -1)], projection={"_id": 0})
     return latest if latest else {"message": "No data"}
 
