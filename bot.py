@@ -620,6 +620,81 @@ class MyBot(commands.Bot):
         self.bg_task = self.loop.create_task(self.check_and_update_docs())
         # 啟動時自動計算所有歷史數據（供儀表板使用）
         self.loop.create_task(self.auto_compute_all_weeks())
+    
+    async def on_message(self, message):
+        """監聽訊息事件，自動更新該週數據"""
+        # 忽略非論壇頻道、Bot 自己的訊息
+        if message.channel.id != FORUM_ID or message.author.bot:
+            return
+        
+        # 獲取訊息所屬週次
+        msg_time = message.created_at.astimezone(TZ_TW)
+        year, week, _ = msg_time.isocalendar()
+        
+        # 背景任務：重新計算該週數據
+        self.loop.create_task(self._recalculate_week(year, week))
+    
+    async def on_raw_reaction_add(self, payload):
+        """監聽按讚事件，自動更新該週數據"""
+        if payload.channel_id != FORUM_ID:
+            return
+        
+        # 獲取訊息
+        try:
+            channel = self.get_channel(payload.channel_id)
+            message = await channel.fetch_message(payload.message_id)
+            
+            # 獲取訊息所屬週次
+            msg_time = message.created_at.astimezone(TZ_TW)
+            year, week, _ = msg_time.isocalendar()
+            
+            # 背景任務：重新計算該週數據
+            self.loop.create_task(self._recalculate_week(year, week))
+        except:
+            pass
+    
+    async def on_raw_reaction_remove(self, payload):
+        """監聽取消按讚事件，自動更新該週數據"""
+        if payload.channel_id != FORUM_ID:
+            return
+        
+        try:
+            channel = self.get_channel(payload.channel_id)
+            message = await channel.fetch_message(payload.message_id)
+            
+            msg_time = message.created_at.astimezone(TZ_TW)
+            year, week, _ = msg_time.isocalendar()
+            
+            self.loop.create_task(self._recalculate_week(year, week))
+        except:
+            pass
+    
+    async def _recalculate_week(self, year: int, week: int):
+        """重新計算指定週次的數據"""
+        try:
+            cog = self.get_cog("OCWCog")
+            if not cog or weekly_reports_collection is None:
+                return
+            
+            s_time, e_time = get_week_range(year, week)
+            stats = await cog._fetch_data(None, s_time, e_time)
+            cog._calculate_scores(stats)
+            
+            # 更新資料庫
+            report_data = {
+                "year": year,
+                "week": week,
+                "range_str": f"{s_time.strftime('%Y-%m-%d')} ~ {e_time.strftime('%Y-%m-%d')}",
+                "stats": [s.to_dict() for s in stats.values()]
+            }
+            await weekly_reports_collection.replace_one(
+                {"year": year, "week": week},
+                report_data,
+                upsert=True
+            )
+            print(f"🔄 已更新 Week {week}/{year} 數據")
+        except Exception as e:
+            print(f"❌ 更新 Week {week}/{year} 失敗: {e}")
 
     async def check_and_update_docs(self):
         """自動檢查並更新論壇文件"""
