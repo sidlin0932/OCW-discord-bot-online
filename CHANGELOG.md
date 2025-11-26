@@ -1,6 +1,9 @@
 # 更新日誌 (Changelog)
 
-## [1.3.0] - 2025-11-27 02:50:00
+## [1.3.0] - 2025-11-27 03:30:00
+### 安全性更新 (Security)
+- **Token 重置**: 因 Discord Bot Token 意外外洩，已重置並更新新 Token。
+- **新增 `.gitignore`**: 加入 `.gitignore` 檔案以防止 `.env` 與其他敏感檔案被上傳至版控。
 ### 核心變更 (Core Changes) ⚠️
 - **互動時間基準 (Interaction-Based Timing)**:
     - 成績計算不再依賴課程發布時間，而是以**互動發生時間**為準。
