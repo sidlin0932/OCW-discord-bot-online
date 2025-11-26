@@ -13,7 +13,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 # 載入 .env 檔案 (本地開發用)
 load_dotenv()
 
-VERSION = "1.2.3 Online"
+VERSION = "1.3.0"
 
 # ====== 設定參數 (從環境變數讀取) ======
 TOKEN = os.getenv("TOKEN")
@@ -113,21 +113,20 @@ def calculate_grade_gpa(percent_score):
     elif percent_score >= 67: return "C+", 2.3
     elif percent_score >= 63: return "C", 2.0
     elif percent_score >= 60: return "C-", 1.7
-    else: return "F/X", 0
-
 # ====== Cog ======
 class OCWCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.last_stats: Dict[int, UserStats] = {}
         self.last_range_str = "尚無資料" 
+        self.last_gpa_info: Dict[int, Dict] = {}  # 儲存最後一次的 GPA 資訊
         self.weekly_report_task.start() 
 
     def cog_unload(self):
         self.weekly_report_task.cancel()
 
     async def _fetch_data(self, interaction: Optional[discord.Interaction], start_time: datetime, end_time: datetime) -> Dict[int, UserStats]:
-        """核心資料抓取邏輯"""
+        """核心資料抓取邏輯 (基於互動時間)"""
         guild = self.bot.get_guild(GUILD_ID)
         if not guild:
             print("❌ 找不到伺服器")
@@ -156,51 +155,48 @@ class OCWCog(commands.Cog):
                 if uid in stats_map:
                     stats_map[uid].bonus = user_doc.get("bonus", 0)
 
-        threads_to_process = []
-        # 處理非封存貼文
-        for thread in forum.threads:
-            if start_time <= thread.created_at <= end_time:
-                threads_to_process.append(thread)
-        # 處理封存貼文
+        # 收集所有需要檢查的貼文 (活躍 + 封存)
+        threads_to_check = []
+        # 1. 活躍貼文
+        threads_to_check.extend(forum.threads)
+        
+        # 2. 封存貼文
         try:
             async for thread in forum.archived_threads(limit=None):
-                if start_time <= thread.created_at <= end_time:
-                    threads_to_process.append(thread)
+                threads_to_check.append(thread)
         except discord.Forbidden:
             print("⚠️ 無法抓封存貼文，缺少權限")
 
-        print(f"🔍 開始處理 {len(threads_to_process)} 個貼文...")
+        print(f"🔍 掃描 {len(threads_to_check)} 個貼文中的互動 ({start_time.date()} ~ {end_time.date()})...")
 
-        for thread in threads_to_process:
-            was_archived = thread.archived
-            if was_archived:
-                try:
-                    await thread.edit(archived=False, locked=False)
-                    thread = await thread.fetch()
-                except:
-                    pass
+        for thread in threads_to_check:
+            try:
+                # 抓取指定時間範圍內的訊息
+                async for message in thread.history(after=start_time, before=end_time, limit=None):
+                    # 排除系統訊息
+                    if message.type != discord.MessageType.default and message.type != discord.MessageType.reply:
+                        continue
+                        
+                    # 統計留言
+                    if message.author.id in stats_map:
+                        user_stat = stats_map[message.author.id]
+                        user_stat.message_count += 1
+                        user_stat.threads_participated[thread.name] = max(
+                            user_stat.threads_participated.get(thread.name, datetime.min.replace(tzinfo=TZ_TW)),
+                            message.created_at.replace(tzinfo=TZ_TW)
+                        )
+                        user_stat.active_days.add(message.created_at.date())
 
-            async for msg in thread.history(limit=None, after=start_time, before=end_time):
-                if msg.author.id in stats_map:
-                    user_stat = stats_map[msg.author.id]
-                    user_stat.message_count += 1
-                    user_stat.threads_participated[thread.name] = msg.created_at
-                    user_stat.active_days.add(msg.created_at.date())
+                    # 統計按讚 (Reaction)
+                    for reaction in message.reactions:
+                        if message.author.id in stats_map:
+                            stats_map[message.author.id].reaction_count += reaction.count
+                            
+            except discord.Forbidden:
+                print(f"⚠️ 無法讀取貼文 {thread.name}")
+            except Exception as e:
+                print(f"❌ 處理貼文 {thread.name} 時發生錯誤: {e}")
 
-                for reaction in msg.reactions:
-                    if str(reaction.emoji) == EMOJI_TO_USE:
-                        async for user in reaction.users():
-                            if user.id in stats_map:
-                                r_stat = stats_map[user.id]
-                                r_stat.reaction_count += 1
-                                r_stat.threads_participated[thread.name] = datetime.now(TZ_TW) 
-
-            if was_archived:
-                try:
-                    await thread.edit(archived=True)
-                except:
-                    pass
-        
         return stats_map
 
     def _calculate_scores(self, stats_map: Dict[int, UserStats]):
@@ -210,15 +206,21 @@ class OCWCog(commands.Cog):
         bot_reactions = bot_stat.reaction_count if bot_stat and bot_stat.reaction_count > 0 else 1
         bot_threads = len(bot_stat.threads_participated) if bot_stat and bot_stat.threads_participated else 1
 
+        # 第一輪：計算原始分數
         for uid, stat in stats_map.items():
+            # 檢查是否活躍
+            if stat.message_count == 0 and stat.reaction_count == 0 and not stat.threads_participated:
+                stat.percent_score = 0
+                stat.grade = "N/A"
+                continue
+
             # 綜合評分：留言 50% + 按讚 30% + 討論串 20%
             message_score = (stat.message_count / bot_messages) * 10  # 最高 10 分
             reaction_score = (stat.reaction_count / bot_reactions) * 6  # 最高 6 分
             thread_score = (len(stat.threads_participated) / bot_threads) * 4  # 最高 4 分
             
             raw_score = 80 + message_score + reaction_score + thread_score + stat.bonus
-            stat.percent_score = min(raw_score, 100)
-            stat.grade, stat.gpa = calculate_grade_gpa(stat.percent_score)
+            stat.percent_score = raw_score  # 先不限制上限
 
             if stat.message_count > 50:
                 stat.achievements.append("🗣️ Chatterbox")
@@ -229,6 +231,28 @@ class OCWCog(commands.Cog):
             if len(stat.active_days) >= 4:
                 stat.achievements.append("🐢 Slow & Steady")
 
+        # 動態分數正規化：如果有人超過 100，以最高分為 100 基準縮放
+        non_bot_stats = [s for s in stats_map.values() if s.uid != BOT_ID and s.grade != "N/A"]
+        if non_bot_stats:
+            max_score = max(s.percent_score for s in non_bot_stats)
+            
+            if max_score > 100:
+                scale_factor = 100.0 / max_score
+                for uid, stat in stats_map.items():
+                    if stat.grade != "N/A":
+                        stat.percent_score = stat.percent_score * scale_factor
+            else:
+                for uid, stat in stats_map.items():
+                    if stat.grade != "N/A":
+                        stat.percent_score = min(stat.percent_score, 100)
+        
+        # 計算等第和 GPA
+        for uid, stat in stats_map.items():
+            if stat.grade != "N/A":
+                stat.grade, stat.gpa = calculate_grade_gpa(stat.percent_score)
+            else:
+                stat.gpa = 0.0
+
         sorted_stats = sorted([s for s in stats_map.values() if s.uid != BOT_ID], key=lambda x: (-x.percent_score, x.name))
         for i, stat in enumerate(sorted_stats, 1):
             stat.rank = i
@@ -236,7 +260,78 @@ class OCWCog(commands.Cog):
         if BOT_ID in stats_map:
             stats_map[BOT_ID].rank = 0
 
-    # ====== 自動化排程任務 ======
+    async def _calculate_cumulative_gpa(self, current_stats: Dict[int, UserStats], current_year: int, current_week: int):
+        """計算累計 GPA（從 Week 40, 2025 開始，等權重平均）"""
+        if weekly_reports_collection is None:
+            return {}
+        
+        START_YEAR = 2025
+        START_WEEK = 40
+        gpa_data = {}
+        
+        try:
+            query = {
+                "$or": [
+                    {"year": START_YEAR, "week": {"$gte": START_WEEK, "$lt": current_week}},
+                    {"year": {"$gt": START_YEAR, "$lt": current_year}},
+                    {"year": current_year, "week": {"$lt": current_week}}
+                ]
+            }
+            
+            historical_reports = []
+            async for report in weekly_reports_collection.find().sort([("year", 1), ("week", 1)]):
+                year = report.get("year")
+                week = report.get("week")
+                
+                if year == current_year and week == current_week: continue
+                if year < START_YEAR: continue
+                if year == START_YEAR and week < START_WEEK: continue
+                if year > current_year: continue
+                if year == current_year and week > current_week: continue
+                    
+                historical_reports.append(report)
+            
+            for report in historical_reports:
+                for user_stat in report.get("stats", []):
+                    uid = user_stat.get("uid")
+                    gpa = user_stat.get("gpa", 0)
+                    
+                    msg_count = user_stat.get("message_count", 0)
+                    react_count = user_stat.get("reaction_count", 0)
+                    active_days = user_stat.get("active_days_count", 0)
+                    
+                    if msg_count == 0 and react_count == 0 and active_days == 0:
+                        continue
+                    
+                    if uid not in gpa_data:
+                        gpa_data[uid] = []
+                    gpa_data[uid].append(gpa)
+            
+            result = {}
+            for uid, stat in current_stats.items():
+                if uid == BOT_ID: continue
+                
+                past_gpas = gpa_data.get(uid, [])
+                has_current_data = (stat.message_count > 0 or stat.reaction_count > 0 or len(stat.active_days) > 0)
+                
+                week_count = len(past_gpas)
+                past_gpa = sum(past_gpas) / week_count if week_count > 0 else 0.0
+                
+                if has_current_data:
+                    all_gpas = past_gpas + [stat.gpa]
+                    with_current_gpa = sum(all_gpas) / len(all_gpas)
+                else:
+                    with_current_gpa = past_gpa
+                
+                result[uid] = {
+                    "past_gpa": past_gpa,
+                    "with_current_gpa": with_current_gpa,
+                    "week_count": week_count
+                }
+            return result
+        except Exception as e:
+            print(f"❌ 計算累計 GPA 失敗: {e}")
+            return {}
     @tasks.loop(time=time(hour=0, minute=0, tzinfo=TZ_TW))
     async def weekly_report_task(self):
         """每週一凌晨 00:00 (UTC+8) 執行"""
@@ -385,16 +480,77 @@ class OCWCog(commands.Cog):
         self._calculate_scores(stats)
         self.last_stats = stats
         self.last_range_str = range_label
+        
+        # 檢查是否有有效數據
+        active_users = [s for s in stats.values() if s.uid != BOT_ID and s.grade != "N/A"]
+        if not active_users:
+            await interaction.followup.send(f"📅 **統計結果** ({range_label})\n\n該週沒有任何課程活動紀錄 (無互動數據)。")
+            return
 
-        msg = f"📊 **統計結果** ({range_label})\n"
-        sorted_users = sorted(stats.values(), key=lambda x: x.rank if x.rank > 0 else 999)
+        # 計算累計 GPA（如果是週模式）
+        gpa_info = {}
+        if not month and not start_date:  # 週模式
+            target_week = week or now.isocalendar()[1]
+            gpa_info = await self._calculate_cumulative_gpa(stats, target_year, target_week)
+            self.last_gpa_info = gpa_info  # 保存 GPA 資訊供 /leaderboard 使用
+
+        msg = f"📊 **統計結果** ({range_label})\n\n"
+        
+        # 計算基準值
+        bot_stat = stats.get(BOT_ID)
+        bot_messages = bot_stat.message_count if bot_stat and bot_stat.message_count > 0 else 1
+        bot_reactions = bot_stat.reaction_count if bot_stat and bot_stat.reaction_count > 0 else 1
+        bot_threads = len(bot_stat.threads_participated) if bot_stat and bot_stat.threads_participated else 1
+        
+        msg += f"📌 **評分基準**: 留言 {bot_messages}(50%) + 按讚 {bot_reactions}(30%) + 討論串 {bot_threads}(20%)\n"
+        msg += f"{'─'*40}\n\n"
+
+        sorted_users = sorted(active_users, key=lambda x: x.rank if x.rank > 0 else 999)
         
         for s in sorted_users:
-            if s.uid == BOT_ID: continue
-            badges = " ".join(s.achievements)
-            msg += f"**{s.rank}. {s.name}**: {s.percent_score:.1f}% ({s.grade}) | 💬 {s.message_count} | 👍 {s.reaction_count} {badges}\n"
+            # 計算各項得分細節
+            message_score = (s.message_count / bot_messages) * 10
+            reaction_score = (s.reaction_count / bot_reactions) * 6
+            thread_score = (len(s.threads_participated) / bot_threads) * 4
+            
+            # 排名勳章
+            rank_medal = "🥇" if s.rank == 1 else "🥈" if s.rank == 2 else "🥉" if s.rank == 3 else f"{s.rank}."
+            
+            # 主要資訊：排名 + 姓名 + 成績 + 等第 + GPA
+            msg += f"{rank_medal} **{s.name}** → **{s.percent_score:.1f}分 ({s.grade})**"
+            
+            # GPA 資訊（放在主要資訊行，更突出）
+            if s.uid in gpa_info:
+                gpa_data = gpa_info[s.uid]
+                if gpa_data["week_count"] > 0:
+                    msg += f" | **GPA: {gpa_data['with_current_gpa']:.2f}** ({gpa_data['past_gpa']:.2f}→)"
+                else:
+                    msg += f" | **GPA: {gpa_data['with_current_gpa']:.2f}** (新)"
+            
+            if s.bonus > 0:
+                msg += f" [+{s.bonus}]"
+            msg += f"\n"
+            
+            # 次要資訊：互動細節
+            msg += f"    留言 {s.message_count}({message_score:.1f}) · 按讚 {s.reaction_count}({reaction_score:.1f}) · 討論串 {len(s.threads_participated)}({thread_score:.1f}) · 活躍 {len(s.active_days)}天"
+            
+            # 成就（若有）
+            if s.achievements:
+                badges = " ".join(s.achievements)
+                msg += f"\n    {badges}"
+            
+            msg += "\n\n"
         
-        await interaction.followup.send(msg[:2000])
+        # 避免超過 2000 字元
+        if len(msg) > 2000:
+            # 簡單的分段發送策略
+            parts = [msg[i:i+1900] for i in range(0, len(msg), 1900)]
+            for part in parts:
+                await interaction.followup.send(part)
+        else:
+            await interaction.followup.send(msg)
+
+
 
     @app_commands.command(name="history", description="查詢歷史週報 (從資料庫)")
     @app_commands.guilds(GUILD_ID)
@@ -443,18 +599,96 @@ class OCWCog(commands.Cog):
 
     @app_commands.command(name="leaderboard", description="顯示排行榜")
     @app_commands.guilds(GUILD_ID)
-    async def leaderboard(self, interaction: discord.Interaction):
-        if not self.last_stats:
-            await interaction.response.send_message("❌ 無資料，請先執行 `/compute`", ephemeral=True)
+    @app_commands.describe(
+        week="週數 (例如 48)",
+        month="月份 (例如 11)",
+        year="年份 (預設今年)",
+        from_oct1="從 10/1 開始計算 (True/False)",
+        start_date="自訂開始日期 (YYYY-MM-DD)",
+        end_date="自訂結束日期 (YYYY-MM-DD)"
+    )
+    async def leaderboard(self, interaction: discord.Interaction, 
+                         week: int = None, 
+                         month: int = None, 
+                         year: int = None,
+                         from_oct1: bool = False,
+                         start_date: str = None,
+                         end_date: str = None):
+        
+        await interaction.response.defer()
+        
+        now = datetime.now(TZ_TW)
+        target_year = year or now.year
+        
+        # 決定時間範圍
+        try:
+            if from_oct1:
+                # 從 10/1 到現在
+                s_time = datetime(2025, 10, 1, tzinfo=TZ_TW)
+                e_time = datetime.now(TZ_TW)
+                range_label = f"從 10/1 至今 | {s_time.date()} ~ {e_time.date()}"
+            elif start_date and end_date:
+                # 自訂日期模式
+                s_date = datetime.strptime(start_date, "%Y-%m-%d").date()
+                e_date = datetime.strptime(end_date, "%Y-%m-%d").date()
+                s_time = datetime.combine(s_date, datetime.min.time()).replace(tzinfo=TZ_TW)
+                e_time = datetime.combine(e_date, datetime.max.time()).replace(tzinfo=TZ_TW)
+                range_label = f"自訂 | {s_date} ~ {e_date}"
+            elif month:
+                # 月份模式
+                s_time, e_time = get_month_range(target_year, month)
+                range_label = f"本月 ({target_year}/{month})"
+            elif year and not week and not month:
+                # 年度模式
+                s_time = datetime(target_year, 1, 1, tzinfo=TZ_TW)
+                e_time = datetime(target_year, 12, 31, 23, 59, 59, tzinfo=TZ_TW)
+                range_label = f"本年 ({target_year})"
+            else:
+                # 週模式 (預設本週)
+                target_week = week or now.isocalendar()[1]
+                s_time, e_time = get_week_range(target_year, target_week)
+                range_label = f"本週 (Week {target_week})"
+                
+            if s_time > e_time:
+                raise ValueError("開始時間不能晚於結束時間")
+                
+        except ValueError as e:
+            await interaction.followup.send(f"❌ 日期錯誤: {e}")
             return
-            
-        sorted_users = sorted([s for s in self.last_stats.values() if s.uid != BOT_ID], key=lambda x: x.rank)
-        msg = f"🏆 **排行榜** ({self.last_range_str})\n"
+        
+        # 重新計算數據
+        stats = await self._fetch_data(None, s_time, e_time)
+        self._calculate_scores(stats)
+        
+        # 計算 GPA（如果是週模式）
+        gpa_info = {}
+        if week or (not month and not year and not from_oct1 and not start_date):
+            target_week = week or now.isocalendar()[1]
+            gpa_info = await self._calculate_cumulative_gpa(stats, target_year, target_week)
+        
+        # 排序
+        sorted_users = sorted([s for s in stats.values() if s.uid != BOT_ID], key=lambda x: x.rank)
+        
+        if not sorted_users:
+            await interaction.followup.send(f"❌ 該時間範圍內沒有資料")
+            return
+        
+        msg = f"🏆 **排行榜** ({range_label})\n\n"
+        
         for s in sorted_users[:10]:
             medal = "🥇" if s.rank == 1 else "🥈" if s.rank == 2 else "🥉" if s.rank == 3 else f"{s.rank}."
-            msg += f"{medal} **{s.name}** - {s.percent_score:.1f}%\n"
+            msg += f"{medal} **{s.name}** - {s.percent_score:.1f}分 ({s.grade})"
+            
+            # 顯示 GPA（若有）
+            if s.uid in gpa_info:
+                gpa_data = gpa_info[s.uid]
+                msg += f" | **GPA: {gpa_data['with_current_gpa']:.2f}**"
+            
+            msg += "\n"
         
-        await interaction.response.send_message(msg)
+        await interaction.followup.send(msg)
+
+
 
     @app_commands.command(name="inactive", description="列出未活躍學生 (老師專用)")
     @app_commands.guilds(GUILD_ID)
@@ -487,21 +721,77 @@ class OCWCog(commands.Cog):
     @app_commands.command(name="matrix", description="顯示參與度矩陣")
     @app_commands.guilds(GUILD_ID)
     async def matrix(self, interaction: discord.Interaction, member: discord.Member = None):
-        target = member or interaction.user
-        if target.id not in self.last_stats:
+        if not self.last_stats:
             await interaction.response.send_message("❌ 無資料，請先執行 `/compute`", ephemeral=True)
             return
 
-        stat = self.last_stats[target.id]
-        msg = f"🧩 **{target.display_name} 的參與矩陣** ({self.last_range_str})\n"
+        await interaction.response.defer()
         
-        if not stat.threads_participated:
-            msg += "尚無參與紀錄"
+        # 如果指定成員，只顯示該成員
+        if member:
+            if member.id not in self.last_stats:
+                await interaction.followup.send(f"❌ 找不到 {member.display_name} 的資料")
+                return
+            
+            stat = self.last_stats[member.id]
+            msg = f"🧩 **{member.display_name} 的參與矩陣** ({self.last_range_str})\n\n"
+            
+            if not stat.threads_participated:
+                msg += "尚無參與紀錄"
+            else:
+                for thread_name in stat.threads_participated:
+                    msg += f"🟩 {thread_name}\n"
+            
+            await interaction.followup.send(msg)
+            return
+        
+        # 顯示所有成員的參與矩陣
+        # 收集所有討論串
+        all_threads = set()
+        for stat in self.last_stats.values():
+            if stat.uid == BOT_ID:
+                continue
+            all_threads.update(stat.threads_participated.keys())
+        
+        if not all_threads:
+            await interaction.followup.send("❌ 目前沒有任何討論串參與記錄")
+            return
+        
+        all_threads = sorted(all_threads)
+        sorted_users = sorted([s for s in self.last_stats.values() if s.uid != BOT_ID], 
+                            key=lambda x: x.rank if x.rank > 0 else 999)
+        
+        # 建立矩陣
+        msg = f"🧩 **參與度矩陣** ({self.last_range_str})\n\n"
+        msg += f"📊 共 {len(sorted_users)} 位成員 × {len(all_threads)} 個討論串\n"
+        msg += f"{'─'*40}\n\n"
+        
+        for user_stat in sorted_users:
+            participated_threads = list(user_stat.threads_participated.keys())
+            participation_count = len(participated_threads)
+            
+            msg += f"**{user_stat.name}** ({participation_count}/{len(all_threads)})\n"
+            
+            # 顯示參與的討論串
+            if participated_threads:
+                # 限制每行長度，避免訊息過長
+                thread_list = ", ".join(participated_threads[:5])
+                if len(participated_threads) > 5:
+                    thread_list += f" ... (+{len(participated_threads)-5})"
+                msg += f"  └ {thread_list}\n"
+            else:
+                msg += f"  └ 無參與記錄\n"
+            
+            msg += "\n"
+        
+        # 分段發送（避免超過 2000 字元）
+        if len(msg) > 2000:
+            parts = [msg[i:i+1900] for i in range(0, len(msg), 1900)]
+            for part in parts:
+                await interaction.followup.send(part)
         else:
-            for thread_name in stat.threads_participated:
-                msg += f"🟩 {thread_name}\n"
-        
-        await interaction.response.send_message(msg)
+            await interaction.followup.send(msg)
+
 
     @app_commands.command(name="profile", description="查看個人檔案與成就")
     @app_commands.guilds(GUILD_ID)
@@ -599,6 +889,14 @@ class OCWCog(commands.Cog):
         file = discord.File(io.BytesIO(output.getvalue().encode('utf-8-sig')), filename="grades.csv")
         await interaction.response.send_message(f"✅ 資料匯出完成 ({self.last_range_str})", file=file)
 
+class PolicyView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="✅ 我同意 (I Agree)", style=discord.ButtonStyle.success, custom_id="policy_agree_btn")
+    async def agree_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("✅ 感謝您的確認！我們已記錄您的同意。", ephemeral=True)
+
 # ====== Bot class ======
 class MyBot(commands.Bot):
     def __init__(self):
@@ -611,6 +909,7 @@ class MyBot(commands.Bot):
 
     async def setup_hook(self):
         await self.add_cog(OCWCog(self))
+        self.add_view(PolicyView()) # 註冊 Persistent View
         await self.tree.sync(guild=discord.Object(id=GUILD_ID))
         print(f"✅ 指令已同步到伺服器 {GUILD_ID}")
 
@@ -620,11 +919,53 @@ class MyBot(commands.Bot):
         self.bg_task = self.loop.create_task(self.check_and_update_docs())
         # 啟動時自動計算所有歷史數據（供儀表板使用）
         self.loop.create_task(self.auto_compute_all_weeks())
+        # 發布 Policy 公告
+        self.loop.create_task(self.announce_policy())
+
+    async def announce_policy(self):
+        """發布成績計算 Policy 公告"""
+        POLICY_CHANNEL_ID = 1423838070649782272
+        try:
+            channel = self.get_channel(POLICY_CHANNEL_ID)
+            if not channel:
+                channel = await self.fetch_channel(POLICY_CHANNEL_ID)
+        except:
+            print("❌ 無法找到 Policy 公告頻道")
+            return
+
+        # 檢查是否已發布
+        async for message in channel.history(limit=10):
+            if message.author.id == self.user.id and message.embeds and "成績計算 Policy 更新" in message.embeds[0].title:
+                print("ℹ️ Policy 公告已存在")
+                return
+
+        embed = discord.Embed(
+            title="📢 成績計算 Policy 更新 (v1.3.0)",
+            description="為了更公平地反映大家的學習狀況，我們對成績計算方式進行了以下調整：",
+            color=discord.Color.gold()
+        )
+        embed.add_field(name="1. 互動時間基準", value="現在以**互動發生時間**為準。即使是舊的課程討論串，只要本週有新留言或按讚，都會計入本週成績。", inline=False)
+        embed.add_field(name="2. 動態評分機制", value="若當週最高分超過 100 分，將以最高分為基準進行正規化 (Scale Down)，確保分數在 0-100 之間。", inline=False)
+        embed.add_field(name="3. 累計 GPA", value="從 2025 第 40 週 (10/1) 開始計算累計 GPA。每週權重相同。", inline=False)
+        embed.add_field(name="4. 空週處理", value="若該週無任何互動紀錄，將不計入 GPA 計算，亦不顯示成績。", inline=False)
+        embed.add_field(name="確認", value="請閱讀以上變更，並點擊下方按鈕確認。", inline=False)
+
+        view = PolicyView()
+        await channel.send(embed=embed, view=view)
+        print("✅ Policy 公告已發布")
     
     async def on_message(self, message):
         """監聽訊息事件，自動更新該週數據"""
-        # 忽略非論壇頻道、Bot 自己的訊息
-        if message.channel.id != FORUM_ID or message.author.bot:
+        # 忽略 Bot 自己的訊息
+        if message.author.bot:
+            return
+
+        # 檢查是否在論壇的 Thread 中 (Thread 的 parent_id 應該是 FORUM_ID)
+        is_forum_thread = False
+        if isinstance(message.channel, discord.Thread) and message.channel.parent_id == FORUM_ID:
+            is_forum_thread = True
+        
+        if not is_forum_thread:
             return
         
         # 獲取訊息所屬週次
@@ -636,12 +977,14 @@ class MyBot(commands.Bot):
     
     async def on_raw_reaction_add(self, payload):
         """監聽按讚事件，自動更新該週數據"""
-        if payload.channel_id != FORUM_ID:
-            return
-        
-        # 獲取訊息
+        # 獲取頻道
         try:
             channel = self.get_channel(payload.channel_id)
+            
+            # 檢查是否在論壇的 Thread 中
+            if not isinstance(channel, discord.Thread) or channel.parent_id != FORUM_ID:
+                return
+
             message = await channel.fetch_message(payload.message_id)
             
             # 獲取訊息所屬週次
@@ -655,11 +998,13 @@ class MyBot(commands.Bot):
     
     async def on_raw_reaction_remove(self, payload):
         """監聽取消按讚事件，自動更新該週數據"""
-        if payload.channel_id != FORUM_ID:
-            return
-        
         try:
             channel = self.get_channel(payload.channel_id)
+            
+            # 檢查是否在論壇的 Thread 中
+            if not isinstance(channel, discord.Thread) or channel.parent_id != FORUM_ID:
+                return
+
             message = await channel.fetch_message(payload.message_id)
             
             msg_time = message.created_at.astimezone(TZ_TW)
@@ -679,6 +1024,11 @@ class MyBot(commands.Bot):
             s_time, e_time = get_week_range(year, week)
             stats = await cog._fetch_data(None, s_time, e_time)
             cog._calculate_scores(stats)
+            
+            # 如果目前記憶體中的數據剛好是這一週，則同步更新記憶體
+            if cog.last_range_str.startswith(f"Week {week} |"):
+                cog.last_stats = stats
+                print(f"🔄 同步更新 Cache 數據 (Week {week})")
             
             # 更新資料庫
             report_data = {
@@ -811,7 +1161,8 @@ class MyBot(commands.Bot):
                 else:
                     current_content_in_discord = last_msg.content
 
-            if current_content_in_discord == content:
+            # 正規化比較 (移除前後空白與 \r)
+            if current_content_in_discord.strip().replace("\r", "") == content.strip().replace("\r", ""):
                 print(f"ℹ️ {title} 已是最新")
                 return
 
