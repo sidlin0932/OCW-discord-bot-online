@@ -20,6 +20,8 @@ TOKEN = os.getenv("TOKEN")
 GUILD_ID = int(os.getenv("GUILD_ID", 0))
 FORUM_ID = int(os.getenv("FORUM_ID", 0))
 ANNOUNCEMENT_CHANNEL_ID = int(os.getenv("ANNOUNCEMENT_CHANNEL_ID", 0)) # 需在 .env 設定
+IMAGE_CHANNEL_ID = int(os.getenv("IMAGE_CHANNEL_ID", 0))  # Bot 專區頻道 ID
+RENDER_URL = os.getenv("RENDER_URL", "")  # Render 部署的網址
 BOT_ID = 1436621968601514054  # Bot 的 ID
 MONGO_URI = os.getenv("MONGO_URI")
 
@@ -120,10 +122,12 @@ class OCWCog(commands.Cog):
         self.last_stats: Dict[int, UserStats] = {}
         self.last_range_str = "尚無資料" 
         self.last_gpa_info: Dict[int, Dict] = {}  # 儲存最後一次的 GPA 資訊
-        self.weekly_report_task.start() 
+        self.weekly_report_task.start()
+        self.daily_chart_task.start()  # 啟動每日圖表任務 
 
     def cog_unload(self):
         self.weekly_report_task.cancel()
+        self.daily_chart_task.cancel()  # 停止每日圖表任務
 
     async def _fetch_data(self, interaction: Optional[discord.Interaction], start_time: datetime, end_time: datetime) -> Dict[int, UserStats]:
         """核心資料抓取邏輯 (基於互動時間)"""
@@ -393,6 +397,48 @@ class OCWCog(commands.Cog):
 
     @weekly_report_task.before_loop
     async def before_weekly_report_task(self):
+        await self.bot.wait_until_ready()
+
+    # ====== 每日圖表發送任務 ======
+    @tasks.loop(time=time(hour=0, minute=0, tzinfo=TZ_TW))
+    async def daily_chart_task(self):
+        """每天凌晨 00:00 (UTC+8) 發送趨勢圖"""
+        print("📊 執行每日圖表發送任務...")
+        
+        if not IMAGE_CHANNEL_ID or not RENDER_URL:
+            print("⚠️ 未設定 IMAGE_CHANNEL_ID 或 RENDER_URL，跳過圖表發送")
+            return
+        
+        channel = self.bot.get_channel(IMAGE_CHANNEL_ID)
+        if not channel:
+            try:
+                channel = await self.bot.fetch_channel(IMAGE_CHANNEL_ID)
+            except:
+                print(f"❌ 找不到圖片頻道 (ID: {IMAGE_CHANNEL_ID})")
+                return
+        
+        # 生成趨勢圖連結
+        trends_url = f"{RENDER_URL.rstrip('/')}/trends"
+        now = datetime.now(TZ_TW)
+        
+        embed = discord.Embed(
+            title="📈 每日學習趨勢圖",
+            description=f"查看所有學生的學習進度與得分趨勢",
+            color=discord.Color.blue(),
+            timestamp=now
+        )
+        embed.add_field(name="📊 趨勢圖表", value=f"[點擊查看互動式圖表]({trends_url})", inline=False)
+        embed.add_field(name="📅 更新時間", value=now.strftime("%Y-%m-%d %H:%M"), inline=False)
+        embed.set_footer(text=f"OCW Bot v{VERSION}")
+        
+        try:
+            await channel.send(embed=embed)
+            print(f"✅ 趨勢圖已發送至頻道 {channel.name}")
+        except Exception as e:
+            print(f"❌ 發送趨勢圖失敗: {e}")
+
+    @daily_chart_task.before_loop
+    async def before_daily_chart_task(self):
         await self.bot.wait_until_ready()
 
     # ====== 指令區 ======
@@ -888,6 +934,45 @@ class OCWCog(commands.Cog):
         output.seek(0)
         file = discord.File(io.BytesIO(output.getvalue().encode('utf-8-sig')), filename="grades.csv")
         await interaction.response.send_message(f"✅ 資料匯出完成 ({self.last_range_str})", file=file)
+
+    @app_commands.command(name="sendchart", description="手動發送趨勢圖到 Bot 專區")
+    @app_commands.guilds(GUILD_ID)
+    async def sendchart(self, interaction: discord.Interaction):
+        """手動觸發趨勢圖發送"""
+        await interaction.response.defer(ephemeral=True)
+        
+        if not IMAGE_CHANNEL_ID or not RENDER_URL:
+            await interaction.followup.send("❌ 未設定 IMAGE_CHANNEL_ID 或 RENDER_URL")
+            return
+        
+        channel = self.bot.get_channel(IMAGE_CHANNEL_ID)
+        if not channel:
+            try:
+                channel = await self.bot.fetch_channel(IMAGE_CHANNEL_ID)
+            except:
+                await interaction.followup.send(f"❌ 找不到圖片頻道 (ID: {IMAGE_CHANNEL_ID})")
+                return
+        
+        # 生成趨勢圖連結
+        trends_url = f"{RENDER_URL.rstrip('/')}/trends"
+        now = datetime.now(TZ_TW)
+        
+        embed = discord.Embed(
+            title="📈 學習趨勢圖",
+            description=f"查看所有學生的學習進度與得分趨勢",
+            color=discord.Color.blue(),
+            timestamp=now
+        )
+        embed.add_field(name="📊 趨勢圖表", value=f"[點擊查看互動式圖表]({trends_url})", inline=False)
+        embed.add_field(name="📅 更新時間", value=now.strftime("%Y-%m-%d %H:%M"), inline=False)
+        embed.add_field(name="👤 發送者", value=interaction.user.mention, inline=False)
+        embed.set_footer(text=f"OCW Bot v{VERSION}")
+        
+        try:
+            await channel.send(embed=embed)
+            await interaction.followup.send(f"✅ 趨勢圖已發送至 {channel.mention}")
+        except Exception as e:
+            await interaction.followup.send(f"❌ 發送失敗: {e}")
 
 class PolicyView(discord.ui.View):
     def __init__(self):
