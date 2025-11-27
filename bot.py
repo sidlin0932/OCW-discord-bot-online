@@ -13,7 +13,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 # 載入 .env 檔案 (本地開發用)
 load_dotenv()
 
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 
 # ====== 設定參數 (從環境變數讀取) ======
 TOKEN = os.getenv("TOKEN")
