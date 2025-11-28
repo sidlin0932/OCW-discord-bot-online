@@ -187,9 +187,9 @@ class OCWCog(commands.Cog):
                         user_stat.message_count += 1
                         user_stat.threads_participated[thread.name] = max(
                             user_stat.threads_participated.get(thread.name, datetime.min.replace(tzinfo=TZ_TW)),
-                            message.created_at.replace(tzinfo=TZ_TW)
+                            message.created_at.astimezone(TZ_TW)
                         )
-                        user_stat.active_days.add(message.created_at.date())
+                        user_stat.active_days.add(message.created_at.astimezone(TZ_TW).date())
 
                     # 統計按讚 (Reaction)
                     for reaction in message.reactions:
@@ -520,6 +520,10 @@ class OCWCog(commands.Cog):
                 
         except ValueError as e:
             await interaction.followup.send(f"❌ 日期錯誤: {e}")
+            return
+        except Exception as e:
+            await interaction.followup.send(f"❌ 發生未預期的錯誤: {e}")
+            print(f"❌ compute 指令發生錯誤: {e}")
             return
 
         stats = await self._fetch_data(interaction, s_time, e_time)
