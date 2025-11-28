@@ -517,88 +517,90 @@ class OCWCog(commands.Cog):
                 
             if s_time > e_time:
                 raise ValueError("開始時間不能晚於結束時間")
+
+            stats = await self._fetch_data(interaction, s_time, e_time)
+            self._calculate_scores(stats)
+            self.last_stats = stats
+            self.last_range_str = range_label
+            
+            # 檢查是否有有效數據
+            active_users = [s for s in stats.values() if s.uid != BOT_ID and s.grade != "N/A"]
+            if not active_users:
+                await interaction.followup.send(f"📅 **統計結果** ({range_label})\n\n該週沒有任何課程活動紀錄 (無互動數據)。")
+                return
+
+            # 計算累計 GPA（如果是週模式）
+            gpa_info = {}
+            if not month and not start_date:  # 週模式
+                target_week = week or now.isocalendar()[1]
+                gpa_info = await self._calculate_cumulative_gpa(stats, target_year, target_week)
+                self.last_gpa_info = gpa_info  # 保存 GPA 資訊供 /leaderboard 使用
+
+            msg = f"📊 **統計結果** ({range_label})\n\n"
+            
+            # 計算基準值
+            bot_stat = stats.get(BOT_ID)
+            bot_messages = bot_stat.message_count if bot_stat and bot_stat.message_count > 0 else 1
+            bot_reactions = bot_stat.reaction_count if bot_stat and bot_stat.reaction_count > 0 else 1
+            bot_threads = len(bot_stat.threads_participated) if bot_stat and bot_stat.threads_participated else 1
+            
+            msg += f"📌 **評分基準**: 留言 {bot_messages}(50%) + 按讚 {bot_reactions}(30%) + 討論串 {bot_threads}(20%)\n"
+            msg += f"{'─'*40}\n\n"
+
+            sorted_users = sorted(active_users, key=lambda x: x.rank if x.rank > 0 else 999)
+            
+            for s in sorted_users:
+                # 計算各項得分細節
+                message_score = (s.message_count / bot_messages) * 10
+                reaction_score = (s.reaction_count / bot_reactions) * 6
+                thread_score = (len(s.threads_participated) / bot_threads) * 4
                 
+                # 排名勳章
+                rank_medal = "🥇" if s.rank == 1 else "🥈" if s.rank == 2 else "🥉" if s.rank == 3 else f"{s.rank}."
+                
+                # 主要資訊：排名 + 姓名 + 成績 + 等第 + GPA
+                msg += f"{rank_medal} **{s.name}** → **{s.percent_score:.1f}分 ({s.grade})**"
+                
+                # GPA 資訊（放在主要資訊行，更突出）
+                if s.uid in gpa_info:
+                    gpa_data = gpa_info[s.uid]
+                    if gpa_data["week_count"] > 0:
+                        msg += f" | **GPA: {gpa_data['with_current_gpa']:.2f}** ({gpa_data['past_gpa']:.2f}→)"
+                    else:
+                        msg += f" | **GPA: {gpa_data['with_current_gpa']:.2f}** (新)"
+                
+                if s.bonus > 0:
+                    msg += f" [+{s.bonus}]"
+                msg += f"\n"
+                
+                # 次要資訊：互動細節
+                msg += f"    留言 {s.message_count}({message_score:.1f}) · 按讚 {s.reaction_count}({reaction_score:.1f}) · 討論串 {len(s.threads_participated)}({thread_score:.1f}) · 活躍 {len(s.active_days)}天"
+                
+                # 成就（若有）
+                if s.achievements:
+                    badges = " ".join(s.achievements)
+                    msg += f"\n    {badges}"
+                
+                msg += "\n\n"
+            
+            # 避免超過 2000 字元
+            if len(msg) > 2000:
+                # 簡單的分段發送策略
+                parts = [msg[i:i+1900] for i in range(0, len(msg), 1900)]
+                for part in parts:
+                    await interaction.followup.send(part)
+            else:
+                await interaction.followup.send(msg)
+
         except ValueError as e:
             await interaction.followup.send(f"❌ 日期錯誤: {e}")
             return
         except Exception as e:
             await interaction.followup.send(f"❌ 發生未預期的錯誤: {e}")
             print(f"❌ compute 指令發生錯誤: {e}")
+            import traceback
+            traceback.print_exc()
             return
-
-        stats = await self._fetch_data(interaction, s_time, e_time)
-        self._calculate_scores(stats)
-        self.last_stats = stats
-        self.last_range_str = range_label
-        
-        # 檢查是否有有效數據
-        active_users = [s for s in stats.values() if s.uid != BOT_ID and s.grade != "N/A"]
-        if not active_users:
-            await interaction.followup.send(f"📅 **統計結果** ({range_label})\n\n該週沒有任何課程活動紀錄 (無互動數據)。")
-            return
-
-        # 計算累計 GPA（如果是週模式）
-        gpa_info = {}
-        if not month and not start_date:  # 週模式
-            target_week = week or now.isocalendar()[1]
-            gpa_info = await self._calculate_cumulative_gpa(stats, target_year, target_week)
-            self.last_gpa_info = gpa_info  # 保存 GPA 資訊供 /leaderboard 使用
-
-        msg = f"📊 **統計結果** ({range_label})\n\n"
-        
-        # 計算基準值
-        bot_stat = stats.get(BOT_ID)
-        bot_messages = bot_stat.message_count if bot_stat and bot_stat.message_count > 0 else 1
-        bot_reactions = bot_stat.reaction_count if bot_stat and bot_stat.reaction_count > 0 else 1
-        bot_threads = len(bot_stat.threads_participated) if bot_stat and bot_stat.threads_participated else 1
-        
-        msg += f"📌 **評分基準**: 留言 {bot_messages}(50%) + 按讚 {bot_reactions}(30%) + 討論串 {bot_threads}(20%)\n"
-        msg += f"{'─'*40}\n\n"
-
-        sorted_users = sorted(active_users, key=lambda x: x.rank if x.rank > 0 else 999)
-        
-        for s in sorted_users:
-            # 計算各項得分細節
-            message_score = (s.message_count / bot_messages) * 10
-            reaction_score = (s.reaction_count / bot_reactions) * 6
-            thread_score = (len(s.threads_participated) / bot_threads) * 4
-            
-            # 排名勳章
-            rank_medal = "🥇" if s.rank == 1 else "🥈" if s.rank == 2 else "🥉" if s.rank == 3 else f"{s.rank}."
-            
-            # 主要資訊：排名 + 姓名 + 成績 + 等第 + GPA
-            msg += f"{rank_medal} **{s.name}** → **{s.percent_score:.1f}分 ({s.grade})**"
-            
-            # GPA 資訊（放在主要資訊行，更突出）
-            if s.uid in gpa_info:
-                gpa_data = gpa_info[s.uid]
-                if gpa_data["week_count"] > 0:
-                    msg += f" | **GPA: {gpa_data['with_current_gpa']:.2f}** ({gpa_data['past_gpa']:.2f}→)"
-                else:
-                    msg += f" | **GPA: {gpa_data['with_current_gpa']:.2f}** (新)"
-            
-            if s.bonus > 0:
-                msg += f" [+{s.bonus}]"
-            msg += f"\n"
-            
-            # 次要資訊：互動細節
-            msg += f"    留言 {s.message_count}({message_score:.1f}) · 按讚 {s.reaction_count}({reaction_score:.1f}) · 討論串 {len(s.threads_participated)}({thread_score:.1f}) · 活躍 {len(s.active_days)}天"
-            
-            # 成就（若有）
-            if s.achievements:
-                badges = " ".join(s.achievements)
-                msg += f"\n    {badges}"
-            
-            msg += "\n\n"
-        
-        # 避免超過 2000 字元
-        if len(msg) > 2000:
-            # 簡單的分段發送策略
-            parts = [msg[i:i+1900] for i in range(0, len(msg), 1900)]
-            for part in parts:
-                await interaction.followup.send(part)
-        else:
-            await interaction.followup.send(msg)
 
 
 
