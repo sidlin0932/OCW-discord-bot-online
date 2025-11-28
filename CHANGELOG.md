@@ -1,6 +1,6 @@
 # 更新日誌 (Changelog)
 
-## [1.3.2-alpha] - 2025-11-28
+## [1.3.2-alpha.1] - 2025-11-28
 ### 修正項目 (Fixes)
 - **Critical Hotfix**: 修正 `/compute` 指令無法執行的邏輯錯誤
   - 修復 `_fetch_data` 函數中的成員過濾條件（line 149）
