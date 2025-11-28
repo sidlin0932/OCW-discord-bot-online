@@ -1,47 +1,17 @@
-# Roadmap (Current: v1.3.0)
+# Roadmap
 
-## 未來規劃 (Future Plans)
+## v1.4.0 (Next Release)
+- [ ] Refactor command handling
+- [ ] Add more interactive features
 
-### 階段一：基礎建設與自動化 (v1.0 - v1.1) ✅
-- [x] **雲端託管**: 支援 Render 部署與 24/7 在線。
-- [x] **自動週報**: 每週自動統計並發布報告。
-- [x] **靈活統計**: 支援月報與自訂日期範圍。
-- [x] **文件發布**: 支援透過指令發布更新公告與說明文件。
+## Long Term Goals
+- [ ] Web Dashboard for bot management
+- [ ] Docker support
+- [ ] Multi-server support enhancement
 
-### 階段二：資料持久化與網頁儀表板 (v1.2) ✅
-- [x] **資料庫整合**: 將數據從記憶體/JSON 遷移至 MongoDB，確保資料不遺失。
-- [x] **網頁儀表板 (Web Dashboard)**: 讓學生與老師可以透過網頁查看詳細的個人數據與圖表。
-- [x] **歷史數據查詢**: 支援查詢過去任何一週的歷史紀錄 (`/history`)。
-- [x] **部署指南自動發布**: Bot 自動在 README 下方以文件形式發布完整部署教學。
-
-### 階段三：進階評分與分析系統 (v1.3) ✅
-- [x] **動態評分機制**: 分數超過 100 分時自動正規化，確保公平性。
-- [x] **累計 GPA 系統**: 從 2025 Week 40 開始計算累計 GPA。
-- [x] **全方位排行榜**: `/leaderboard` 支援週、月、年及自訂範圍查詢。
-- [x] **參與度矩陣**: `/matrix` 視覺化呈現全員參與狀況。
-- [x] **互動時間基準**: 改以互動發生時間為準，精確捕捉學習歷程。
-
-### 階段四：學習社群實用工具 (v1.4 - v1.5) 🚧
-*專注於 OCW 學習場景與社群互動的實用功能*
-- [ ] **讀書會/組隊系統 (Study Groups)**:
-    - 讓學生可以發起臨時讀書會 (`/study create`)。
-    - 自動建立專屬語音/文字頻道，結束後自動封存。
-- [ ] **資源共享圖書館 (Resource Library)**:
-    - 學生可透過指令分享筆記或參考資料 (`/share <url> <tag>`)。
-    - 支援標籤搜尋功能 (`/search <tag>`)，建立社群共筆文化。
-- [ ] **助教/老師問答隊列 (Office Hours Queue)**:
-    - 在 Office Hour 時段，學生可以排隊提問 (`/queue join`)。
-    - 避免語音頻道混亂，讓助教依序叫號。
-- [ ] **匿名意見箱 (Feedback Box)**:
-    - 讓學生可以安心地對課程或社群提出建議 (`/feedback`)。
-
-### 階段五：深度遊戲化與獎勵 (v1.6+) 🔮
-- [ ] **經驗值系統 (XP 2.0)**: 根據「回答問題」、「分享筆記」等高品質互動給予不同權重的經驗值。
-- [ ] **虛擬商店 (Shop)**: 積分兌換「作業延遲卡」、「自訂身分組顏色」等趣味獎勵。
-
-### 階段六：AI 智慧助教 (v2.0+) 🤖
-- [ ] **RAG 課程問答**: 匯入課程講義，讓 AI 自動回答基礎學科問題。
-- [ ] **作業批改**: 簡單的程式碼作業自動檢查。
-
-## 許願池 (Wishlist)
-- 歡迎在 GitHub Issues 或 Discord 提出您的想法！
+## Documentation Goals (Planned)
+- [ ] **INSTALL.md**: Detailed step-by-step installation guide for new contributors.
+- [ ] **TESTING.md**: Guide on how to run local tests and write new test cases.
+- [ ] **DEPLOY.md**: Comprehensive deployment strategies (Render, Docker, VPS).
+- [ ] **API Documentation**: Auto-generated docs for `bot.py` and `dev_tools`.
+- [ ] **User Manual**: A guide for end-users of the Discord bot.
