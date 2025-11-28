@@ -87,3 +87,5 @@ git push -u origin develop
 - `CHANGELOG.md`: 給人看的更新日誌。
 - `CONTRIBUTING.md` (或本手冊): 給開發者看的工作流指南。
 - `.github/workflows/*.yml`: 自動化腳本。
+- `.agent/workflows/release_workflow.md`: **[給 AI 看]** 自動化發布流程腳本。
+- `RELEASE_CHEAT_SHEET.md`: **[給你 (User) 看]** 手動發布流程作弊條。

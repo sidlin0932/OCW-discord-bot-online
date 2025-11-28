@@ -13,7 +13,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 # 載入 .env 檔案 (本地開發用)
 load_dotenv()
 
-VERSION = "1.3.1"
+VERSION = "1.3.2-alpha"
 
 # ====== 設定參數 (從環境變數讀取) ======
 TOKEN = os.getenv("TOKEN")
@@ -146,7 +146,7 @@ class OCWCog(commands.Cog):
 
         stats_map = {}
         for member in guild.members:
-            if not member.bot or member.id == BOT_ID:
+            if not member.bot and member.id != BOT_ID:
                  stats_map[member.id] = UserStats(member.id, member.display_name)
         
         if BOT_ID not in stats_map:

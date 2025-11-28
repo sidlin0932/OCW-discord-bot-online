@@ -1,5 +1,13 @@
 # 更新日誌 (Changelog)
 
+## [1.3.2-alpha] - 2025-11-28
+### 修正項目 (Fixes)
+- **Critical Hotfix**: 修正 `/compute` 指令無法執行的邏輯錯誤
+  - 修復 `_fetch_data` 函數中的成員過濾條件（line 149）
+  - 原始錯誤：`if not member.bot or member.id == BOT_ID` 導致所有非bot成員被排除
+  - 修正為：`if not member.bot and member.id != BOT_ID` 正確過濾bot成員
+  - 影響：此bug導致 `/compute` 指令無法正常統計任何學生數據
+
 ## [1.3.1] - 2025-11-28 00:15
 ### 新增功能 (New Features)
 - **每日趨勢圖自動發送**:
